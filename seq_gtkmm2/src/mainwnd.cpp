@@ -408,13 +408,13 @@ mainwnd::mainwnd
     perf().enregister(this);                        /* register for notify  */
     update_window_title();                          /* main window          */
 
-    m_menubar->items().push_front(MenuElem("_File", *m_menu_file));
+    m_menubar->items().push_front(MenuElem(_("_File"), *m_menu_file));
     populate_menu_file();
-    m_menubar->items().push_back(MenuElem("_Edit", *m_menu_edit));
+    m_menubar->items().push_back(MenuElem(_("_Edit"), *m_menu_edit));
     populate_menu_edit();
-    m_menubar->items().push_back(MenuElem("_View", *m_menu_view));
+    m_menubar->items().push_back(MenuElem(_("_View"), *m_menu_view));
     populate_menu_view();
-    m_menubar->items().push_back(MenuElem("_Help", *m_menu_help));
+    m_menubar->items().push_back(MenuElem(_("_Help"), *m_menu_help));
     populate_menu_help();
     m_menubar->set_sensitive(m_menu_mode);
 
@@ -458,8 +458,8 @@ mainwnd::mainwnd
     );
 
     std::string modetext =
-        "Toggle Song mode vs Live mode.  If the button is active, the Song "
-        "mode is active.  The label also shows which mode is active."
+        _("Toggle Song mode vs Live mode.  If the button is active, the Song "
+        "mode is active.  The label also shows which mode is active.")
         ;
 
     add_tooltip(m_button_mode, modetext);

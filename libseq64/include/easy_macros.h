@@ -32,6 +32,10 @@
 
 #include "platform_macros.h"
 
+#ifndef GNU_GETTEXT
+#define _(x)        x
+#endif
+
 /*
  * For now, let's see if we can get MingW to create a Windows-appropriate
  * header file.
