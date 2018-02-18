@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-08
+ * \updates       2018-02-01
  * \license       GNU GPLv2 or above
  *
  *  Compare this class to eventedit, which has to do some similar things,
@@ -42,8 +42,42 @@
  *  User jean-emmanual added support for disabling the following of the
  *  progress bar during playback.  See the seqroll::m_progress_follow member.
  *
- * Menu refinements.  We are fixing the popup menus so that they are created
- * only once.  Here is the progress:
+ * Table.
+ *
+ *      This dialog is layed out as a Gtk::Table, which is deprecated in
+ *      preference to Gtk::Grid.  The attachment numbers have the following
+ *      meanings:
+ *
+ *      -   left_attach   Column number to attach left side of a child widget.
+ *      -   right_attach  Column number to attach right side of a child widget.
+ *      -   top_attach    Row number to attach top of a child widget.
+ *      -   bottom_attach Row number to attach bottom of a child widget.
+ *
+ *      The rows and columns of the seqedit main portion are:
+ *
+ *  Column:         0       1                                         2
+ *  Row:         -------------------------------------------------------
+ *          0   |         | seqtime  1 2 0 1                        | b |
+ *              |---------------------------------------------------|---|
+ *              |         |                                         | v |
+ *          1   | seqkeys | seqroll  1 2 1 2                        | s |
+ *              | 0 1 1 2 |                                         |   |
+ *              |---------------------------------------------------|---|
+ *          2   | blank   | seqevent 1 2 2 3                        | b |
+ *              |---------------------------------------------------|---|
+ *              |         |                                         |   |
+ *          3   | blank   | seqdata  1 2 3 4                        | b |
+ *              | 0 1 3 4 |                                         |   |
+ *              |---------------------------------------------------|---|
+ *          4   | icon??? | dhbox    1 2 4 5 event to rec-volume    | b |
+ *              |---------------------------------------------------|---|
+ *          5   | blank   | horizontal scrollbar                    | b |
+ *               -------------------------------------------------------
+ *
+ * Menu refinements.
+ *
+ *      We are fixing the popup menus so that they are created only once.
+ *      Here is the progress:
  *
  *      -   m_menu_bpm.
  *      -   m_menu_bw.
@@ -79,6 +113,8 @@
 #include "calculations.hpp"             /* measures_to_ticks()          */
 #include "controllers.hpp"
 #include "event.hpp"
+#include "fruityseq.hpp"                /* seq64::FruitySeqEventInput   */
+#include "fruityseqroll.hpp"            /* seq64::FruitySeqRollInput    */
 #include "gdk_basic_keys.h"
 #include "globals.h"
 #include "gtk_helpers.h"
@@ -103,6 +139,8 @@
 #endif
 
 #include "pixmaps/follow.xpm"
+#include "pixmaps/fruity.xpm"
+#include "pixmaps/tux.xpm"
 #include "pixmaps/play.xpm"
 #include "pixmaps/q_rec.xpm"
 #include "pixmaps/rec.xpm"
@@ -133,6 +171,14 @@
 #include "pixmaps/drum.xpm"
 #include "pixmaps/transpose.xpm"
 #endif
+
+/**
+ *  Manifest constants for the top panel text sizes.
+ */
+
+#define SEQ64_ENTRY_SIZE_SEQNUMBER       4
+#define SEQ64_ENTRY_SIZE_SEQNAME        20
+#define SEQ64_ENTRY_SIZE_BUSNAME        32
 
 /*
  * Saves some typing.  We could, like Stazed, limit the scope of this to
@@ -281,11 +327,12 @@ seqedit::seqedit
     m_menu_length       (manage(new Gtk::Menu())),
 #ifdef SEQ64_STAZED_TRANSPOSE
     m_toggle_transpose  (manage(new Gtk::ToggleButton())),
-    m_image_transpose   (),
+    m_image_transpose   (nullptr),
 #endif
     m_menu_midich       (nullptr),
     m_menu_midibus      (nullptr),
-    m_menu_data         (nullptr),
+    m_menu_data         (nullptr),                  // see m_button_data
+    m_menu_minidata     (nullptr),                  // see m_button_minidata
     m_menu_key          (manage(new Gtk::Menu())),
     m_menu_scale        (manage(new Gtk::Menu())),
 #ifdef SEQ64_STAZED_CHORD_GENERATOR
@@ -307,17 +354,34 @@ seqedit::seqedit
     m_seqdata_wid       (manage(new seqdata(m_seq, p, m_zoom, *m_hadjust))),
     m_seqevent_wid
     (
-        manage(new seqevent(p, m_seq, m_zoom, m_snap, *m_seqdata_wid, *m_hadjust))
+        manage
+        (
+            (rc().interaction_method() == e_fruity_interaction) ?
+                new FruitySeqEventInput
+                (
+                    p, m_seq, m_zoom, m_snap, *m_seqdata_wid, *m_hadjust
+                ) :
+                new seqevent
+                (
+                    p, m_seq, m_zoom, m_snap, *m_seqdata_wid, *m_hadjust
+                )
+        )
     ),
     m_seqroll_wid
     (
         manage
         (
-            new seqroll
-            (
-                p, m_seq, m_zoom, m_snap, *m_seqkeys_wid, pos,
-                *m_hadjust, *m_vadjust
-            )
+            (rc().interaction_method() == e_fruity_interaction) ?
+                new FruitySeqRollInput
+                (
+                    p, m_seq, m_zoom, m_snap, *m_seqkeys_wid, pos,
+                    *m_hadjust, *m_vadjust
+                ) :
+                new seqroll
+                (
+                    p, m_seq, m_zoom, m_snap, *m_seqkeys_wid, pos,
+                    *m_hadjust, *m_vadjust
+                )
         )
     ),
 #ifdef SEQ64_STAZED_LFO_SUPPORT
@@ -358,7 +422,8 @@ seqedit::seqedit
     m_entry_chord       (nullptr),
 #endif
     m_tooltips          (manage(new Gtk::Tooltips())),
-    m_button_data       (manage(new Gtk::Button(" Event "))),
+    m_button_data       (manage(new Gtk::Button("Event"))),
+    m_button_minidata   (manage(new Gtk::Button())),
     m_entry_data        (manage(new Gtk::Entry())),
     m_button_bpm        (nullptr),
     m_entry_bpm         (nullptr),
@@ -380,12 +445,18 @@ seqedit::seqedit
     m_radio_grow        (nullptr),
     m_radio_draw        (nullptr),
 #endif
+    m_entry_seqnumber   (nullptr),
     m_entry_name        (nullptr),
+    m_image_mousemode   (nullptr),
     m_editing_status    (0),
     m_editing_cc        (0),
+    m_first_event       (0),
+    m_first_event_name  ("(no events)"),
     m_have_focus        (false)
 {
-    std::string title = "Sequencer64 - \"";                 /* main window */
+    std::string title = SEQ64_APP_NAME " #";        /* main window title    */
+    title += m_seq.seq_number();
+    title += " \"";
     title += m_seq.name();
     title += "\"";
     set_title(title);
@@ -402,7 +473,12 @@ seqedit::seqedit
     Gtk::HBox * dhbox = manage(new Gtk::HBox(false, 2));
     m_vbox->set_border_width(2);
 
-    /* fill table */
+    /*
+     * Fill the (deprecated) Table.  The numbers are the L, R, T, and B
+     * attachment locations.  See the banner notes for this module.
+     *
+     *                              L  R  T  B
+     */
 
     m_table->attach(*m_seqkeys_wid, 0, 1, 1, 2, Gtk::SHRINK, Gtk::FILL);
     m_table->attach(*m_seqtime_wid, 1, 2, 0, 1, Gtk::FILL, Gtk::SHRINK);
@@ -417,6 +493,18 @@ seqedit::seqedit
     (
         *dhbox, 1, 2, 4, 5, Gtk::FILL | Gtk::EXPAND, Gtk::SHRINK, 0, 2
     );
+
+    m_image_mousemode = manage
+    (
+        (rc().interaction_method() == e_fruity_interaction) ?
+            new PIXBUF_IMAGE(fruity_xpm) :
+            new PIXBUF_IMAGE(tux_xpm)
+    );
+    m_table->attach
+    (
+        *m_image_mousemode, 0, 1, 4, 5, Gtk::SHRINK, Gtk::SHRINK, 0, 2
+    );
+
     m_table->attach
     (
         *m_vscroll_new, 2, 3, 1, 2, Gtk::SHRINK, Gtk::FILL | Gtk::EXPAND
@@ -441,10 +529,15 @@ seqedit::seqedit
     (
         mem_fun(*this, &seqedit::popup_event_menu)
     );
+    m_button_minidata->signal_clicked().connect
+    (
+        mem_fun(*this, &seqedit::popup_mini_event_menu)
+    );
     m_entry_data->set_size_request(40, -1);
     m_entry_data->set_editable(false);
 
     dhbox->pack_start(*m_button_data, false, false);
+    dhbox->pack_start(*m_button_minidata, false, false);
     dhbox->pack_start(*m_entry_data, true, true);
 
 #ifdef SEQ64_STAZED_LFO_SUPPORT
@@ -468,7 +561,8 @@ seqedit::seqedit
         "Sequence is allowed to be transposed if button is highighted/checked."
     );
     m_toggle_transpose->set_active(m_seq.get_transposable());
-    set_transpose_image(m_seq.get_transposable());
+    if (! usr().work_around_transpose_image())
+        set_transpose_image(m_seq.get_transposable());
 #endif
 
     /* play, rec, thru */
@@ -573,7 +667,6 @@ seqedit::seqedit
      *
      * gfloat middle = m_vscroll->get_adjustment()->get_upper() / 3;
      * m_vscroll->get_adjustment()->set_value(middle);
-     *
      * m_seqroll_wid->set_ignore_draw(true);        // WE MISSED THIS!
      */
 
@@ -583,10 +676,6 @@ seqedit::seqedit
     int zoom = usr().zoom();
     if (usr().zoom() == SEQ64_USE_ZOOM_POWER_OF_2)      /* i.e. 0 */
         zoom = zoom_power_of_2(m_ppqn);
-
-    /*
-     * Not needed: m_seqroll_wid->set_ignore_redraw(true);
-     */
 
     set_zoom(zoom);
     set_beats_per_bar(m_seq.get_beats_per_bar());
@@ -601,7 +690,6 @@ seqedit::seqedit
      */
 
     set_midi_bus(m_seq.get_midi_bus());
-
     set_data_type(EVENT_NOTE_ON);
     if (m_seq.musical_scale() != int(c_scale_off))
         set_scale(m_seq.musical_scale());
@@ -621,6 +709,7 @@ seqedit::seqedit
         m_bgsequence = m_seq.background_sequence();
 
     set_background_sequence(m_bgsequence);
+    repopulate_mini_event_menu(m_seq.get_midi_bus(), m_seq.get_midi_channel());
 
     /*
      * These calls work if called here, in the parent of the seqroll.
@@ -632,6 +721,7 @@ seqedit::seqedit
      *
      * Not needed: m_seqroll_wid->set_ignore_redraw(false);
      */
+
 }
 
 /**
@@ -912,7 +1002,8 @@ seqedit::popup_tool_menu ()
     (
         MenuElem
         (
-            "Odd 1/4 Note Beats", sigc::bind(DO_ACTION, c_select_odd_notes, m_ppqn)
+            "Odd 1/4 Note Beats",
+            sigc::bind(DO_ACTION, c_select_odd_notes, m_ppqn)
         )
     );
     holder->items().push_back
@@ -1196,9 +1287,13 @@ seqedit::fill_top_bar ()
      *  First row of top bar
      */
 
-    m_entry_name = manage(new Gtk::Entry());            /* name             */
-    m_entry_name->set_max_length(32);                   /* was 26           */
-    m_entry_name->set_width_chars(32);                  /* was 26           */
+    m_entry_seqnumber = manage(new Gtk::Entry());       /* sequence number  */
+    m_entry_seqnumber->set_width_chars(SEQ64_ENTRY_SIZE_SEQNUMBER);
+    m_entry_seqnumber->set_text(m_seq.seq_number());
+    m_entry_seqnumber->set_sensitive(false);
+
+    m_entry_name = manage(new Gtk::Entry());            /* sequence name    */
+    m_entry_name->set_width_chars(SEQ64_ENTRY_SIZE_SEQNAME);
     m_entry_name->set_text(m_seq.name());
     m_entry_name->signal_changed().connect
     (
@@ -1227,6 +1322,7 @@ seqedit::fill_top_bar ()
         m_entry_name->select_region(0, 0);              /* select text      */
     }
 
+    m_hbox->pack_start(*m_entry_seqnumber, true, true);
     m_hbox->pack_start(*m_entry_name, true, true);
     m_hbox->pack_start(*(manage(new Gtk::VSeparator())), false, false, 4);
 
@@ -1286,10 +1382,16 @@ seqedit::fill_top_bar ()
     );
     m_hbox->pack_start(*m_button_length , false, false);
     m_hbox->pack_start(*m_entry_length , false, false);
+
 #ifdef SEQ64_STAZED_TRANSPOSE
     m_hbox->pack_start(*m_toggle_transpose, false, false, 4);
 #endif
-    m_hbox->pack_start(*(manage(new Gtk::VSeparator())), false, false, 4);
+
+    /*
+     * We need the space this takes up:
+     * m_hbox->pack_start(*(manage(new Gtk::VSeparator())), false, false, 4);
+     */
+
     m_button_bus = manage(new Gtk::Button());           /* MIDI output bus   */
     m_button_bus->add(*manage(new PIXBUF_IMAGE(bus_xpm)));
     m_button_bus->signal_clicked().connect
@@ -1298,8 +1400,7 @@ seqedit::fill_top_bar ()
     );
     add_tooltip(m_button_bus, "Select MIDI output bus.");
     m_entry_bus = manage(new Gtk::Entry());
-    m_entry_bus->set_max_length(60);
-    m_entry_bus->set_width_chars(40);                   /* was 60, then 50  */
+    m_entry_bus->set_width_chars(SEQ64_ENTRY_SIZE_BUSNAME);
     m_entry_bus->set_editable(false);
     m_hbox->pack_start(*m_button_bus , false, false);
     m_hbox->pack_start(*m_entry_bus , true, true);
@@ -1309,7 +1410,7 @@ seqedit::fill_top_bar ()
     (
         mem_fun(*this, &seqedit::popup_midich_menu)
     );
-    add_tooltip(m_button_channel, "Select MIDI channel.");
+    add_tooltip(m_button_channel, "Select MIDI output channel.");
     m_entry_channel = manage(new Gtk::Entry());
     m_entry_channel->set_width_chars(2);
     m_entry_channel->set_editable(false);
@@ -1582,7 +1683,8 @@ seqedit::popup_midibus_menu ()
 }
 
 /**
- *  Populates the MIDI Channel pop-up menu.
+ *  Populates the MIDI Channel pop-up menu, if necessary, and then reveals the
+ *  menu to the user.
  */
 
 void
@@ -1591,19 +1693,49 @@ seqedit::popup_midich_menu ()
     if (not_nullptr(m_menu_midich))
     {
         m_menu_midich->popup(0, 0);
-        return;
     }
+    else
+    {
+        repopulate_midich_menu(m_seq.get_midi_bus());
+        m_menu_midich->popup(0, 0);
+    }
+}
+
+/**
+ *  Populates the MIDI Channel pop-up menu.  This action is needed at startup
+ *  of the seqedit window, and when the user changes the active buss for the
+ *  sequence.
+ *
+ *  When the output buss or channel are changed, we get the 16 "channels" from
+ *  the new buss's definition, get the corresponding instrument, and load its
+ *  name into this midich popup.  Then we need to go to the instrument/channel
+ *  that has been selected, and repopulate the event menu with that item's
+ *  controller values/names.
+ *
+ * \param buss
+ *      The new value for the buss from which to get the [user-instrument-N]
+ *      settings in the [user-instrument-definitions] section.
+ */
+
+void
+seqedit::repopulate_midich_menu (int buss)
+{
+    if (not_nullptr(m_menu_midich))
+        delete m_menu_midich;
 
     m_menu_midich = manage(new Gtk::Menu());
-    int bus = m_seq.get_midi_bus();
     for (int channel = 0; channel < SEQ64_MIDI_BUS_CHANNEL_MAX; ++channel)
     {
         char b[4];                                  /* 2 digits or less  */
-        snprintf(b, sizeof b, "%d", channel + 1);
+        snprintf(b, sizeof b, "%2d", channel + 1);
         std::string name = std::string(b);
-        std::string s = usr().instrument_name(bus, channel);
+        std::string s = usr().instrument_name(buss, channel);
         if (! s.empty())
-            name += (std::string(" ") + s);
+        {
+            name += " [";
+            name += s;
+            name += "]";
+        }
 
 #define SET_CH         mem_fun(*this, &seqedit::set_midi_channel)
 
@@ -1612,7 +1744,6 @@ seqedit::popup_midich_menu ()
             MenuElem(name, sigc::bind(SET_CH, channel, true))
         );
     }
-    m_menu_midich->popup(0, 0);
 }
 
 /**
@@ -1728,18 +1859,89 @@ seqedit::create_menu_image (bool state)
 }
 
 /**
- *  Populates the event-selection menu that drops from the "Event" button
- *  in the bottom row of the Pattern editor.
- *
- *  This menu has a large number of items.  I think they are filled in in
- *  code, but can also be loaded from ~/.seq24usr.  To be determined.
+ *  Populates the event-selection menu, in necessary, and then pops it up.
+ *  Also see the handling of the m_button_data and m_entry_data objects.
  */
 
 void
 seqedit::popup_event_menu ()
 {
+    if (not_nullptr(m_menu_data))
+        delete m_menu_data;
+
+    int buss = m_seq.get_midi_bus();
+    int channel = m_seq.get_midi_channel();
+    repopulate_event_menu(buss, channel);
+    m_menu_data->popup(0, 0);
+}
+
+/**
+ *  Local define used for setting the m_entry_data textbox.
+ */
+
+#define SET_DATA_TYPE(x)    mem_fun(*this, &seqedit::set_data_type), x, 0
+
+/**
+ *  Function to create event menu entries.  Too damn big!
+ */
+
+void
+seqedit::set_event_entry
+(
+    Gtk::Menu * menu,
+    const std::string & text,
+    bool present,
+    midibyte status,
+    midibyte control    // = 0
+)
+{
+    menu->items().push_back
+    (
+        ImageMenuElem
+        (
+            text, *create_menu_image(present),
+            sigc::bind(mem_fun(*this, &seqedit::set_data_type), status, control)
+        )
+    );
+    if (present && m_first_event == 0x00)
+    {
+        m_first_event = status;
+        m_first_event_name = text;
+        set_data_type(status, 0);       // need m_first_control value!
+    }
+}
+
+/**
+ *  Populates the event-selection menu that drops from the "Event" button
+ *  in the bottom row of the Pattern editor.
+ *
+ *  This menu has a large number of items.  They are filled in by
+ *  code, but can also be loaded from sequencer64.usr.
+ *
+ *  This function first loops through all of the existing events in the
+ *  sequence in order to determine what events exist in it.  If any of the
+ *  following events are found, their entry in the menu is marked by a filled
+ *  square, rather than a hollow square:
+ *
+ *      -   Note On
+ *      -   Note off
+ *      -   Aftertouch
+ *      -   Program Change
+ *      -   Channel Pressure
+ *      -   Pitch Wheel
+ *      -   Control Changes from 0 to 127
+ *
+ * \param buss
+ *      The selected bus number.
+ *
+ * \param channel
+ *      The selected channel number.
+ */
+
+void
+seqedit::repopulate_event_menu (int buss, int channel)
+{
     bool ccs[SEQ64_MIDI_COUNT_MAX];
-    char b[20];
     bool note_on = false;
     bool note_off = false;
     bool aftertouch = false;
@@ -1747,11 +1949,9 @@ seqedit::popup_event_menu ()
     bool channel_pressure = false;
     bool pitch_wheel = false;
     midibyte status, cc;
-    int bus = m_seq.get_midi_bus();
-    int channel = m_seq.get_midi_channel();
     memset(ccs, false, sizeof(bool) * SEQ64_MIDI_COUNT_MAX);
     m_seq.reset_draw_marker();
-    while (m_seq.get_next_event(status, cc))      /* used only here!  */
+    while (m_seq.get_next_event(status, cc))            /* used only here!  */
     {
         switch (status)
         {
@@ -1786,73 +1986,19 @@ seqedit::popup_event_menu ()
     }
 
     m_menu_data = manage(new Gtk::Menu());
-    m_menu_data->items().push_back
-    (
-        ImageMenuElem
-        (
-            "Note On Velocity", *create_menu_image(note_on),
-            sigc::bind
-            (
-                mem_fun(*this, &seqedit::set_data_type), EVENT_NOTE_ON, 0
-            )
-        )
-    );
+    set_event_entry(m_menu_data, "Note On Velocity", note_on, EVENT_NOTE_ON);
     m_menu_data->items().push_back(SeparatorElem());
-    m_menu_data->items().push_back
+    set_event_entry(m_menu_data, "Note Off Velocity", note_off, EVENT_NOTE_OFF);
+    set_event_entry(m_menu_data, "Aftertouch", aftertouch, EVENT_AFTERTOUCH);
+    set_event_entry
     (
-        ImageMenuElem
-        (
-            "Note Off Velocity", *create_menu_image(note_off),
-           sigc::bind
-           (
-                mem_fun(*this, &seqedit::set_data_type), EVENT_NOTE_OFF, 0
-            )
-        )
+        m_menu_data, "Program Change", program_change, EVENT_PROGRAM_CHANGE
     );
-    m_menu_data->items().push_back
+    set_event_entry
     (
-        ImageMenuElem
-        (
-            "AfterTouch", *create_menu_image(aftertouch),
-            sigc::bind
-            (
-                mem_fun(*this, &seqedit::set_data_type), EVENT_AFTERTOUCH, 0
-            )
-        )
+        m_menu_data, "Channel Pressure", channel_pressure, EVENT_CHANNEL_PRESSURE
     );
-    m_menu_data->items().push_back
-    (
-        ImageMenuElem
-        (
-            "Program Change", *create_menu_image(program_change),
-            sigc::bind
-            (
-                mem_fun(*this, &seqedit::set_data_type), EVENT_PROGRAM_CHANGE, 0
-            )
-        )
-    );
-    m_menu_data->items().push_back
-    (
-        ImageMenuElem
-        (
-            "Channel Pressure", *create_menu_image(channel_pressure),
-            sigc::bind
-            (
-                mem_fun(*this, &seqedit::set_data_type), EVENT_CHANNEL_PRESSURE, 0
-            )
-        )
-    );
-    m_menu_data->items().push_back
-    (
-        ImageMenuElem
-        (
-            "Pitch Wheel", *create_menu_image(pitch_wheel),
-            sigc::bind
-            (
-                mem_fun(*this, &seqedit::set_data_type), EVENT_PITCH_WHEEL , 0
-            )
-        )
-    );
+    set_event_entry(m_menu_data, "Pitch Wheel", pitch_wheel, EVENT_PITCH_WHEEL);
     m_menu_data->items().push_back(SeparatorElem());
 
     /**
@@ -1862,44 +2008,203 @@ seqedit::popup_event_menu ()
 
     const int menucount = 8;
     const int itemcount = 16;
-    for (int submenu = 0; submenu < menucount; submenu++)
+    char b[32];
+    for (int submenu = 0; submenu < menucount; ++submenu)
     {
         int offset = submenu * itemcount;
         snprintf(b, sizeof b, "Controls %d-%d", offset, offset + itemcount - 1);
         Gtk::Menu * menucc = manage(new Gtk::Menu());
-        for (int item = 0; item < itemcount; item++)
+        for (int item = 0; item < itemcount; ++item)
         {
             /*
              * Do we really want the default controller name to start?
              * That's what the legacy Seq24 code does!  We need to document
-             * it in the seq24-doc and sequencer64-doc projects.
+             * it in the seq24-doc and sequencer64-doc projects.  Also, there
+             * was a bug in Seq24 where the instrument number was use re 1
+             * to get the proper instrument... it needs to be decremented to
+             * be re 0.
              */
 
             std::string controller_name(c_controller_names[offset + item]);
-            const user_midi_bus & umb = usr().bus(bus);
+            const user_midi_bus & umb = usr().bus(buss);
             int inst = umb.instrument(channel);
             const user_instrument & uin = usr().instrument(inst);
-            if (uin.is_valid())         // kind of a redundant check
+            if (uin.is_valid())                             // redundant check
             {
                 if (uin.controller_active(offset + item))
                     controller_name = uin.controller_name(offset + item);
             }
-            menucc->items().push_back
+            set_event_entry
             (
-                ImageMenuElem
-                (
-                    controller_name, *create_menu_image(ccs[offset + item]),
-                    sigc::bind
-                    (
-                        mem_fun(*this, &seqedit::set_data_type),
-                        EVENT_CONTROL_CHANGE, offset + item
-                    )
-                )
+                menucc, controller_name, ccs[offset+item],
+                EVENT_CONTROL_CHANGE, offset + item
             );
         }
         m_menu_data->items().push_back(MenuElem(std::string(b), *menucc));
     }
-    m_menu_data->popup(0, 0);
+}
+
+/**
+ *  Populates the event-selection menu, in necessary, and then pops it up.
+ *  Also see the handling of the m_button_minidata and m_entry_data objects.
+ */
+
+void
+seqedit::popup_mini_event_menu ()
+{
+    if (not_nullptr(m_menu_minidata))
+        delete m_menu_minidata;
+
+    int buss = m_seq.get_midi_bus();
+    int channel = m_seq.get_midi_channel();
+    repopulate_mini_event_menu(buss, channel);
+    m_menu_minidata->popup(0, 0);
+}
+
+/**
+ *  Populates the mini event-selection menu that drops from the mini-"Event"
+ *  button in the bottom row of the Pattern editor.
+ *  This menu has a much smaller number of items, only the ones that actually
+ *  exist in the track/pattern/loop/sequence.
+ *
+ * \param buss
+ *      The selected bus number.
+ *
+ * \param channel
+ *      The selected channel number.
+ */
+
+void
+seqedit::repopulate_mini_event_menu (int buss, int channel)
+{
+    bool ccs[SEQ64_MIDI_COUNT_MAX];
+    bool note_on = false;
+    bool note_off = false;
+    bool aftertouch = false;
+    bool program_change = false;
+    bool channel_pressure = false;
+    bool pitch_wheel = false;
+    midibyte status, cc;
+    memset(ccs, false, sizeof(bool) * SEQ64_MIDI_COUNT_MAX);
+    m_seq.reset_draw_marker();
+    while (m_seq.get_next_event(status, cc))            /* used only here!  */
+    {
+        switch (status)
+        {
+        case EVENT_NOTE_OFF:
+            note_off = true;
+            break;
+
+        case EVENT_NOTE_ON:
+            note_on = true;
+            break;
+
+        case EVENT_AFTERTOUCH:
+            aftertouch = true;
+            break;
+
+        case EVENT_CONTROL_CHANGE:
+            ccs[cc] = true;
+            break;
+
+        case EVENT_PITCH_WHEEL:
+            pitch_wheel = true;
+            break;
+
+        case EVENT_PROGRAM_CHANGE:
+            program_change = true;
+            break;
+
+        case EVENT_CHANNEL_PRESSURE:
+            channel_pressure = true;
+            break;
+        }
+    }
+    m_menu_minidata = manage(new Gtk::Menu());
+    bool any_events = false;
+    if (note_on)
+    {
+        any_events = true;
+        set_event_entry(m_menu_minidata, "Note On Velocity", true, EVENT_NOTE_ON);
+    }
+    if (note_off)
+    {
+        any_events = true;
+        set_event_entry
+        (
+            m_menu_minidata, "Note Off Velocity", true, EVENT_NOTE_OFF
+        );
+    }
+    if (aftertouch)
+    {
+        any_events = true;
+        set_event_entry(m_menu_minidata, "Aftertouch", true, EVENT_AFTERTOUCH);
+    }
+    if (program_change)
+    {
+        any_events = true;
+        set_event_entry
+        (
+            m_menu_minidata, "Program Change", true, EVENT_PROGRAM_CHANGE
+        );
+    }
+    if (channel_pressure)
+    {
+        any_events = true;
+        set_event_entry
+        (
+            m_menu_minidata, "Channel Pressure", true, EVENT_CHANNEL_PRESSURE
+        );
+    }
+    if (pitch_wheel)
+    {
+        any_events = true;
+        set_event_entry
+        (
+            m_menu_minidata, "Pitch Wheel", true, EVENT_PITCH_WHEEL
+        );
+    }
+
+    m_menu_minidata->items().push_back(SeparatorElem());
+
+    /**
+     *  Create the one menu for the controller changes that actually exist in
+     *  the track, if any.
+     */
+
+    const int itemcount = SEQ64_MIDI_COUNT_MAX;             /* 128 */
+    for (int item = 0; item < itemcount; ++item)
+    {
+        std::string controller_name(c_controller_names[item]);
+        const user_midi_bus & umb = usr().bus(buss);
+        int inst = umb.instrument(channel);
+        const user_instrument & uin = usr().instrument(inst);
+        if (uin.is_valid())                             // redundant check
+        {
+            if (uin.controller_active(item))
+                controller_name = uin.controller_name(item);
+        }
+        if (ccs[item])
+        {
+            any_events = true;
+            set_event_entry
+            (
+                m_menu_minidata, controller_name, true,
+                EVENT_CONTROL_CHANGE, item
+            );
+        }
+    }
+    if (any_events)
+    {
+        // Here, we would like to pre-select the first kind of event found,
+        // somehow.
+    }
+    else
+        set_event_entry(m_menu_minidata, "(no events)", false, 0);
+
+    Gtk::Image * eventflag = manage(create_menu_image(any_events));
+    if (not_nullptr(eventflag))
+        m_button_minidata->set_image(*eventflag);
 }
 
 #ifdef SEQ64_STAZED_EXPAND_RECORD
@@ -1917,7 +2222,7 @@ seqedit::popup_record_menu()
     (
         ImageMenuElem
         (
-            "Legacy merge-looped recording",
+            "Merge notes in loop recording",
             *create_menu_image(legacy),
             sigc::bind
             (
@@ -1930,7 +2235,7 @@ seqedit::popup_record_menu()
     (
         ImageMenuElem
         (
-            "Overwrite looped recording",
+            "Replace notes in loop recording",
             *create_menu_image(m_seq.get_overwrite_rec()),
             sigc::bind
             (
@@ -1943,7 +2248,7 @@ seqedit::popup_record_menu()
     (
         ImageMenuElem
         (
-            "Expand sequence length to fit recording",
+            "Expand length in loop recording",
             *create_menu_image(m_seqroll_wid->get_expanded_record()),
             sigc::bind
             (
@@ -1991,7 +2296,8 @@ seqedit::set_midi_channel (int midichannel, bool user_change)
  *  in the field if we set it from the seqmenu.
  *
  * \param bus
- *      The buss value to set.
+ *      The buss value to set.  If this value changes the selected buss, then
+ *      the MIDI channel popup menu is repopulated.
  *
  * \param user_change
  *      True if the user made this change, and thus has potentially modified
@@ -2001,9 +2307,16 @@ seqedit::set_midi_channel (int midichannel, bool user_change)
 void
 seqedit::set_midi_bus (int bus, bool user_change)
 {
-    m_seq.set_midi_bus(bus, user_change);       /* user-modified value? */
+    int initialbus = m_seq.get_midi_bus();
+    m_seq.set_midi_bus(bus, user_change);           /* user-modified value? */
     mastermidibus & mmb = perf().master_bus();
     m_entry_bus->set_text(mmb.get_midi_out_bus_name(bus));
+    if (bus != initialbus)
+    {
+        int channel = m_seq.get_midi_channel();
+        repopulate_midich_menu(bus);
+        repopulate_event_menu(bus, channel);
+    }
 }
 
 /**
@@ -2351,36 +2664,70 @@ void
 seqedit::transpose_change_callback ()
 {
     bool istransposable = m_toggle_transpose->get_active();
-    set_transpose_image(istransposable);
     m_seq.set_transposable(istransposable);
+    if (! usr().work_around_transpose_image())
+        set_transpose_image(istransposable);
 }
 
 /**
  *  Changes the image used for the transpose button.
  *
+ *  Can we leverage this variation?
+ *
+ *      m_toggle_transpose->add_pixlabel("info.xpm", "duh");
+ *
  * \param istransposable
- *      If true, set the image to the "Transpose" icon.  Otherwise, set
- *      it to the "Drum" (not transposable) icon.
+ *      If true, set the image to the "Transpose" icon.  Otherwise, set it to
+ *      the "Drum" (not transposable) icon.
  */
 
 void
 seqedit::set_transpose_image (bool istransposable)
 {
-    delete m_image_transpose;
     if (istransposable)
     {
-        m_image_transpose = manage(new PIXBUF_IMAGE(transpose_xpm));
         add_tooltip(m_toggle_transpose, "Sequence is transposable.");
+        m_image_transpose = manage(new(std::nothrow) PIXBUF_IMAGE(transpose_xpm));
     }
     else
     {
-        m_image_transpose = manage(new PIXBUF_IMAGE(drum_xpm));
         add_tooltip(m_toggle_transpose, "Sequence is not transposable.");
+        m_image_transpose = manage(new(std::nothrow) PIXBUF_IMAGE(drum_xpm));
     }
-    m_toggle_transpose->set_image(*m_image_transpose);
+    if (not_nullptr(m_image_transpose))
+        m_toggle_transpose->set_image(*m_image_transpose);
 }
 
 #endif
+
+/**
+ *  Changes the image used for the mouse-mode indicator.
+ *
+ * \param isfruity
+ *      If true, set the image to the "Fruity" icon.  Otherwise, set it to the
+ *      "Tux" icon.
+ */
+
+void
+seqedit::set_mousemode_image (bool isfruity)
+{
+    /*
+     * Not necessary:
+     *
+     *      m_table->remove(*m_image_mousemode);
+     *      delete m_image_mousemode;
+     */
+
+    if (isfruity)
+        m_image_mousemode = manage(new PIXBUF_IMAGE(fruity_xpm));
+    else
+        m_image_mousemode = manage(new PIXBUF_IMAGE(tux_xpm));
+
+    m_table->attach
+    (
+        *m_image_mousemode, 0, 1, 4, 5, Gtk::FILL | Gtk::EXPAND, Gtk::SHRINK, 0, 2
+    );
+}
 
 /**
  *  Passes the play status to the sequence object.
@@ -2408,10 +2755,7 @@ seqedit::record_change_callback ()
 {
     bool thru_active = m_toggle_thru->get_active();
     bool record_active = m_toggle_record->get_active();
-    if (! thru_active)
-        perf().master_bus().set_sequence_input(record_active, &m_seq);
-
-    m_seq.set_recording(record_active);
+    perf().set_recording(record_active, thru_active, &m_seq);
 }
 
 /**
@@ -2421,12 +2765,17 @@ seqedit::record_change_callback ()
  *
  *      If we set Quantized recording, then also set recording, but do not
  *      unset recording if we unset Quantized recording.
+ *
+ *  This is not necessarily the most intuitive thing to do.  See
+ *  midi_record.txt.
  */
 
 void
 seqedit::q_rec_change_callback ()
 {
-    m_seq.set_quantized_rec(m_toggle_q_rec->get_active());
+    // m_seq.set_quantized_recording(m_toggle_q_rec->get_active());
+
+    perf().set_quantized_recording(m_toggle_q_rec->get_active(), &m_seq);
     if (m_toggle_q_rec->get_active() && ! m_toggle_record->get_active())
         m_toggle_record->activate();
 }
@@ -2477,11 +2826,10 @@ seqedit::thru_change_callback ()
 {
     bool thru_active = m_toggle_thru->get_active();
     bool record_active = m_toggle_record->get_active();
-    if (! record_active)
-        perf().master_bus().set_sequence_input(thru_active, &m_seq);
-
-    m_seq.set_thru(thru_active);        /* issue #69 fixed here */
+    perf().set_thru(record_active, thru_active, &m_seq);
 }
+
+#ifdef SEQ64_FOLLOW_PROGRESS_BAR
 
 /**
  *  Passes the Follow status to the seqroll object.
@@ -2492,6 +2840,8 @@ seqedit::follow_change_callback ()
 {
     m_seqroll_wid->set_progress_follow(m_toggle_follow->get_active());
 }
+
+#endif  // SEQ64_FOLLOW_PROGRESS_BAR
 
 /**
  *  Passes the given parameter to sequence::set_rec_vol().  This function also
@@ -2680,12 +3030,19 @@ seqedit::timeout ()
         m_button_redo->set_sensitive(false);
 
     /*
-     * Experimental.  Let the toggle-play button track the sequence's mute
-     * state.
+     * Let the toggle-play button track the sequence's mute state. Also, since
+     * we can control recording and thru via MIDI now, make sure those buttons
+     * are correct.  Still need to handle quantized record (m_toggle_q_rec).
      */
 
     if (m_seq.get_playing() != m_toggle_play->get_active())
         m_toggle_play->set_active(m_seq.get_playing());
+
+    if (m_seq.get_recording() != m_toggle_record->get_active())
+        m_toggle_record->set_active(m_seq.get_recording());
+
+    if (m_seq.get_thru() != m_toggle_thru->get_active())
+        m_toggle_thru->set_active(m_seq.get_thru());
 
     return true;
 }
@@ -2737,7 +3094,9 @@ seqedit::handle_close ()
      * perf().master_bus().set_sequence_input(false, nullptr);
      */
 
-    perf().master_bus().set_sequence_input(false, &m_seq);
+//  perf().master_bus().set_sequence_input(false, &m_seq);
+
+    perf().set_sequence_input(false, &m_seq);
     m_seq.set_recording(false);
     m_seq.set_editing(false);
     change_focus(false);
@@ -2903,7 +3262,7 @@ seqedit::on_scroll_event (GdkEventScroll * ev)
  *          capabilities of scrolling up and down with the mouse while the
  *          Ctrl key is pressed.
  *
- *  The Keypad-End key is an issue on our ASUS "gaming" laptop.  Whether it is 
+ *  The Keypad-End key is an issue on our ASUS "gaming" laptop.  Whether it is
  *  seen as a "1" or an "End" key depends on an interaction between the Shift
  *  and the Num Lock key.  Annoying, takes some time to get used to.
  *

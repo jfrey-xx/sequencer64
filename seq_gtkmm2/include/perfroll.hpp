@@ -28,17 +28,16 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-05-21
+ * \updates       2017-10-15
  * \license       GNU GPLv2 or above
  *
  *  This class represents the central piano-roll user-interface area of the
  *  performance/song editor.
- *
  */
 
-#include "gui_drawingarea_gtk2.hpp"
-#include "fruityperfroll_input.hpp"     /* FruityPerfInput      */
-#include "perfroll_input.hpp"           /* Seq24PerfInput       */
+#include "globals.h"                    /* seq64::c_max_sequence            */
+#include "gui_drawingarea_gtk2.hpp"     /* seq64::gui_drawingarea_gtk2      */
+#include "rect.hpp"                     /* seq64::rect class                */
 
 /*
  *  Do not document a namespace; it breaks Doxygen.
@@ -55,7 +54,6 @@ namespace Gtk
 
 namespace seq64
 {
-    class AbstractPerfInput;
     class perform;
     class perfedit;
 
@@ -73,11 +71,17 @@ class perfroll : public gui_drawingarea_gtk2
      *  function.
      */
 
-    friend class FruityPerfInput;
-    friend class Seq24PerfInput;
     friend class perfedit;
 
-private:
+protected:
+
+    /**
+     *  Static sizing members for initial zoom of the perfroll.
+     */
+
+    static int sm_perfroll_size_box_w;
+    static int sm_perfroll_background_x;
+    static int sm_perfroll_size_box_click_w;
 
     /**
      *  Provides a link to the perfedit that created this object.  We want to
@@ -86,6 +90,20 @@ private:
      */
 
     perfedit & m_parent;
+
+    /**
+     *  Indicates we are in the middle of adding a sequence segment to the
+     *  performance.  Moved from AbstractPerfInput.
+     */
+
+    bool m_adding;
+
+    /**
+     *  Indicates if the left mouse button is pressed while in adding mode.
+     *  Moved from AbstractPerfInput.
+     */
+
+    bool m_adding_pressed;
 
     /**
      *  Provides the horizontal page increment for the horizontal scrollbar.
@@ -105,12 +123,14 @@ private:
 
     int m_v_page_increment;
 
-    int m_snap;                     /**< The amount of horizontal snap.     */
+    int m_snap_x;                   /**< Amount of horizontal snap, pulses. */
+    int m_snap_y;                   /**< The amount of vertical snap.       */
     int m_ppqn;                     /**< Parts-per-quarter-note value.      */
     int m_page_factor;              /**< 4096, horizonal page sizing.       */
     int m_divs_per_beat;            /**< Holds current tick scaling value.  */
     midipulse m_ticks_per_bar;      /**< Holds current bar scaling value.   */
     int m_perf_scale_x;             /**< Scaling based on zoom and PPQN.    */
+    int m_w_scale_x;                /**< Scaling based on zoom and PPQN.    */
 
     /**
      *  New value to attempt a rudimentary time-zoom feature.  It seems to
@@ -120,7 +140,7 @@ private:
     int m_zoom;
 
     /**
-     *  The maximum height of the perfroll names box, in pixes.  This is
+     *  The maximum height of the perfroll names box, in pixels.  This is
      *  currently semantically a constant set to c_names_y = 24.
      */
 
@@ -221,7 +241,7 @@ private:
      *  init_before_show() based on the maximum trigger found in the perform
      *  object, the ticks/bar, the PPQN, and the page factor.  Also can be
      *  increased in size in the increment_size() function [tied to the Grow
-     *  button].  Used in update_sizes().  
+     *  button].  Used in update_sizes().
      */
 
     int m_roll_length_ticks;
@@ -235,14 +255,19 @@ private:
 
     /**
      *  The horizontal trigger location for section movement.  Used only by
-     *  the friend modules perfroll_input and fruityperfroll_input.
+     *  the modules perfroll_input and fruityperfroll_input.
      */
 
-    midipulse m_drop_tick_trigger_offset;
+    midipulse m_drop_tick_offset;
 
     /**
      *  Holds the currently-selected sequence being moved.  Used for redrawing
      *  the sequence.
+     *
+     * Extension?
+     *
+     *  We would like to extend this to a list of sequencens so that we could
+     *  move more than one sequence at once.
      */
 
     int m_drop_sequence;
@@ -261,32 +286,58 @@ private:
 
     bool m_sequence_active[c_max_sequence];
 
+#ifdef SEQ64_SONG_BOX_SELECT
+
     /**
-     *  We need both styles of interaction object present.  Even if the user
-     *  specifies the fruity interaction, the Seq24 interaction is still
-     *  needed to handle our new keystroke support for the perfroll.  We need
-     *  both objects to exist all the time, similar to the Fruity/Seq24 roles
-     *  in the seqroll object.
+     *  The previous selection rectangle, used for undrawing it.  Not yet
+     *  ready, first starting Shift-Select methods.
+     */
+
+    rect m_old;
+
+    /**
+     *  The previous selection rectangle, used for undrawing it.
+     */
+
+    rect m_selected;
+
+    /**
+     *  Set to true if the song editor is in box-selection mode.
+     */
+
+    bool m_box_select;
+
+    /**
+     *  The lower sequence number for the box-select mode.
+     */
+
+    int m_box_select_low;
+
+    /**
+     *  The upper sequence number for the box-select mode.
+     */
+
+    int m_box_select_high;
+
+    /**
      *
-     * \obsolete
-     *      AbstractPerfInput * m_interaction
      */
 
-    FruityPerfInput m_fruity_interaction;
+    midipulse m_last_tick;
 
     /**
-     *  Provides support for standard Seq24 mouse handling, plus the keystroke
-     *  handlers.
+     *  The horizontal value of the scroll window in units of pixels.
      */
 
-    Seq24PerfInput m_seq24_interaction;
+    int m_scroll_offset_x;
 
     /**
-     *  Provides a reference to the selected (at startup time) method of mouse
-     *  interaction.
+     *  The vertical value of the scroll window in units of pixels.
      */
 
-    AbstractPerfInput & m_interaction;
+    int m_scroll_offset_y;
+
+#endif  // SEQ64_SONG_BOX_SELECT
 
     /**
      *  Used in the Seq24 or Fruity processing when moving a section of
@@ -340,7 +391,7 @@ public:
         draw_progress();
     }
 
-private:
+protected:
 
     void draw_progress ();                  /* called by perfedit       */
     void redraw_dirty_sequences ();         /* called by perfedit       */
@@ -348,9 +399,101 @@ private:
     void convert_xy (int x, int y, midipulse & tick, int & seq);
     void convert_x (int x, midipulse & tick);
     void snap_x (int & x);
-    void draw_sequence_on (int seqnum);
+    void snap_y (int & y);
+    void draw_sequence_on (int seqnum);         /* perform::SeqOperation    */
     void draw_background_on (int seqnum);
-    void draw_drawable_row (long y);
+    void draw_drawable_row (int y);
+
+#ifdef SEQ64_SONG_BOX_SELECT
+
+    void draw_selection_on_window ();
+
+    /**
+     *  Useful x calculation.  Offsets the x value by the x origin of the
+     *  current page.
+     *
+     * \param x
+     *      The x value to offset.
+     */
+
+    int scroll_offset_x (int x) const
+    {
+        return x + m_scroll_offset_x;
+    }
+
+    /**
+     *  Useful y calculation.  Offsets the y value by the y origin of the
+     *  current page.
+     *
+     * \param y
+     *      The y value to offset.
+     */
+
+    int scroll_offset_y (int y) const
+    {
+        return y + m_scroll_offset_y;
+    }
+
+    /**
+     *  Useful x and y calculation.  Offsets the current x and y values by the
+     *  x and y origin of the current page.
+     *
+     * \param x
+     *      The y value to offset.
+     *
+     * \param y
+     *      The y value to offset.
+     */
+
+    void set_current_offset_x_y (int x, int y)
+    {
+        m_current_x = x + m_scroll_offset_x;
+        m_current_y = y + m_scroll_offset_y;
+    }
+
+    /**
+     * \getter m_selecting
+     */
+
+    bool selecting () const
+    {
+        return m_box_select;
+    }
+
+    /**
+     * \setter m_selecting
+     */
+
+    void selecting (bool flag)
+    {
+        m_box_select = flag;
+    }
+
+    /**
+     *  Indicates if we're selecting or moving.
+     *
+     * \return
+     *      Returns true if one of those four flags are set.
+     */
+
+    bool select_action () const
+    {
+        return selecting() || drop_action();
+    }
+
+#endif  // SEQ64_SONG_BOX_SELECT
+
+    /**
+     *  To be used in iterating through a set.
+     */
+
+    void draw_sequence (int seqnum)
+    {
+        draw_background_on(seqnum);
+        draw_sequence_on(seqnum);
+    }
+
+    void offset_sequence (int seqnum, midipulse offset);
     void change_horz ();
 
 #ifdef USE_STAZED_PERF_AUTO_SCROLL
@@ -427,24 +570,95 @@ private:
         scroll_vset(m_vadjust, value);
     }
 
-private:        // callbacks
+protected:
 
-    void on_realize ();
-    bool on_expose_event (GdkEventExpose * ev);
-    bool on_button_press_event (GdkEventButton * ev);
-    bool on_button_release_event (GdkEventButton * ev);
-    bool on_motion_notify_event (GdkEventMotion * ev);
-    bool on_scroll_event (GdkEventScroll * ev) ;
-    bool on_focus_in_event (GdkEventFocus * ev);
-    bool on_focus_out_event (GdkEventFocus * ev);
-    void on_size_allocate (Gtk::Allocation & al);
-    bool on_key_press_event (GdkEventKey * ev);
+    virtual void activate_adding (bool adding) = 0;
+    virtual bool handle_motion_key (bool is_left) = 0;
+
+    /**
+     * \getter m_adding
+     */
+
+    bool is_adding () const
+    {
+        return m_adding;
+    }
+
+    /**
+     * \setter m_adding
+     */
+
+    void set_adding (bool flag)
+    {
+        m_adding = flag;
+    }
+
+    /**
+     * \getter m_adding_pressed
+     */
+
+    bool is_adding_pressed () const
+    {
+        return m_adding_pressed;
+    }
+
+    /**
+     * \setter m_adding_pressed
+     */
+
+    void set_adding_pressed (bool flag)
+    {
+        m_adding_pressed = flag;
+    }
+
+    /**
+     * \getter m_growing
+     */
+
+    bool growing () const
+    {
+        return m_growing;
+    }
+
+    /**
+     * \getter m_moving
+     */
+
+    bool moving () const
+    {
+        return m_moving;
+    }
+
+    /**
+     *  Indicates if we're moving.
+     *
+     * \return
+     *      Returns true if one of those two flags are set.
+     */
+
+    bool drop_action () const
+    {
+        return moving();
+    }
+
+protected:        // callbacks
+
+    virtual void on_realize ();
+    virtual bool on_expose_event (GdkEventExpose * ev);
+    virtual bool on_button_press_event (GdkEventButton * ev);
+    virtual bool on_button_release_event (GdkEventButton * ev);
+    virtual bool on_motion_notify_event (GdkEventMotion * ev);
+    virtual bool on_scroll_event (GdkEventScroll * ev) ;
+    virtual bool on_focus_in_event (GdkEventFocus * ev);
+    virtual bool on_focus_out_event (GdkEventFocus * ev);
+    virtual void on_size_allocate (Gtk::Allocation & al);
+    virtual bool on_key_press_event (GdkEventKey * ev);
 
     /**
      *  This do-nothing callback effectively throws away a size request.
      */
 
-    void on_size_request (GtkRequisition *)
+    virtual void on_size_request (GtkRequisition *)
     {
         // Empty body
     }

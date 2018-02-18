@@ -28,7 +28,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-22
+ * \updates       2018-01-15
  * \license       GNU GPLv2 or above
  *
  *  This module also declares/defines the various constants, status-byte
@@ -50,6 +50,33 @@
 
 /**
  *  Defines the number of data bytes in MIDI status data.
+ *
+ *  But consider this, events other than System Exclusive, which do not have
+ *  an arbitrary number of bytes, but a definite number. These events are:
+ *
+ *      -   Sequence No.:   FF 00 02 s1 s1
+ *      -   MIDI Channel:   FF 20 01 cc
+ *      -   MIDI Port:      FF 21 01 pp
+ *      -   Set Tempo:      FF 51 03 tt tt tt
+ *      -   SMPTE Offset:   FF 54 05 hh mm ss fr ff
+ *      -   Time Signature: FF 58 04 nn dd cc bb
+ *      -   Key Signature:  FF 59 02 sf mi
+ *
+ *  The arbitrarily-sized Meta events are:
+ *
+ *      -   Text:           FF 01 len text
+ *      -   Copyright:      FF 02 len text
+ *      -   Track Name:     FF 03 len name
+ *      -   Instrument:     FF 04 len name
+ *      -   Marker:         FF 05 len text
+ *      -   Cue Point:      FF 06 len text
+ *      -   Seq. Specific:  FF 7F len data
+ *
+ *  The maximum amount of constant-size data is 5 bytes.  We should aim to
+ *  increase this and use it, using event::m_status as the "meta" byte and
+ *  perhaps m_channel as the "meta-event" byte.  But curently, the tempo and
+ *  time signature events are stored as data in the sequence object, so
+ *  that's probably the best tack/tact for the future.
  */
 
 #define SEQ64_MIDI_DATA_BYTE_COUNT      2
@@ -107,25 +134,31 @@ const midibyte EVENT_PITCH_WHEEL        = 0xE0;      // 0lllllll 0mmmmmmm
  *  A MIDI System Exclusive (SYSEX) message starts with F0, followed
  *  by the manufacturer ID (how many? bytes), a number of data bytes, and
  *  ended by an F7.
+ *
+ * MIDI System Real-Time Messages:
+ *
+ *      -   https://en.wikipedia.org/wiki/MIDI_beat_clock
+ *      -   http://www.midi.org/techspecs/midimessages.php
  */
 
-const midibyte EVENT_MIDI_SYSEX          = 0xF0;      // redundant, see below
-const midibyte EVENT_MIDI_QUARTER_FRAME  = 0xF1;      // undefined?
-const midibyte EVENT_MIDI_SONG_POS       = 0xF2;
-const midibyte EVENT_MIDI_SONG_SELECT    = 0xF3;      // not used
-const midibyte EVENT_MIDI_SONG_F4        = 0xF4;      // undefined
-const midibyte EVENT_MIDI_SONG_F5        = 0xF5;      // undefined
-const midibyte EVENT_MIDI_TUNE_SELECT    = 0xF6;      // not used in seq24
-const midibyte EVENT_MIDI_SYSEX_END      = 0xF7;      // redundant, see below
-const midibyte EVENT_MIDI_SYSEX_CONTINUE = 0xF7;      // redundant, see below
-const midibyte EVENT_MIDI_CLOCK          = 0xF8;
-const midibyte EVENT_MIDI_SONG_F9        = 0xF9;      // undefined
-const midibyte EVENT_MIDI_START          = 0xFA;
-const midibyte EVENT_MIDI_CONTINUE       = 0xFB;
-const midibyte EVENT_MIDI_STOP           = 0xFC;
-const midibyte EVENT_MIDI_SONG_FD        = 0xFD;      // undefined
-const midibyte EVENT_MIDI_ACTIVE_SENS    = 0xFE;      // not used in seq24
-const midibyte EVENT_MIDI_RESET          = 0xFF;      // not used in seq24
+const midibyte EVENT_MIDI_REALTIME       = 0xF0;    // 0xFn when masked
+const midibyte EVENT_MIDI_SYSEX          = 0xF0;    // redundant, see below
+const midibyte EVENT_MIDI_QUARTER_FRAME  = 0xF1;    // system common > 0 bytes
+const midibyte EVENT_MIDI_SONG_POS       = 0xF2;    // 2 data bytes
+const midibyte EVENT_MIDI_SONG_SELECT    = 0xF3;    // 1 data byte, not used
+const midibyte EVENT_MIDI_SONG_F4        = 0xF4;    // undefined
+const midibyte EVENT_MIDI_SONG_F5        = 0xF5;    // undefined
+const midibyte EVENT_MIDI_TUNE_SELECT    = 0xF6;    // 0 data bytes, not used
+const midibyte EVENT_MIDI_SYSEX_END      = 0xF7;    // redundant, see below
+const midibyte EVENT_MIDI_SYSEX_CONTINUE = 0xF7;    // redundant, see below
+const midibyte EVENT_MIDI_CLOCK          = 0xF8;    // no data bytes
+const midibyte EVENT_MIDI_SONG_F9        = 0xF9;    // undefined
+const midibyte EVENT_MIDI_START          = 0xFA;    // no data bytes
+const midibyte EVENT_MIDI_CONTINUE       = 0xFB;    // no data bytes
+const midibyte EVENT_MIDI_STOP           = 0xFC;    // no data bytes
+const midibyte EVENT_MIDI_SONG_FD        = 0xFD;    // undefined
+const midibyte EVENT_MIDI_ACTIVE_SENSE   = 0xFE;    // 0 data bytes, not used
+const midibyte EVENT_MIDI_RESET          = 0xFF;    // 0 data bytes, not used
 
 /**
  *  0xFF is a MIDI "escape code" used in MIDI files to introduce a MIDI meta
@@ -134,17 +167,31 @@ const midibyte EVENT_MIDI_RESET          = 0xFF;      // not used in seq24
  *  to the sequencer by other MIDI participants.
  */
 
-const midibyte EVENT_MIDI_META           = 0xFF;      // an escape code
+const midibyte EVENT_MIDI_META           = 0xFF;    // an escape code
 
 /**
- *  Provides values for the currently-supported Meta events:
+ *  Provides values for the currently-supported Meta events, and many others:
  *
  *      -   Set Tempo (0x51)
  *      -   Time Signature (0x58)
  */
 
+const midibyte EVENT_META_SEQ_NUMBER     = 0x00;
+const midibyte EVENT_META_TEXT_EVENT     = 0x01;    // not yet handled
+const midibyte EVENT_META_COPYRIGHT      = 0x02;    // not yet handled
+const midibyte EVENT_META_TRACK_NAME     = 0x03;
+const midibyte EVENT_META_INSTRUMENT     = 0x04;    // not yet handled
+const midibyte EVENT_META_LYRIC          = 0x05;    // not yet handled
+const midibyte EVENT_META_MARKER         = 0x06;    // not yet handled
+const midibyte EVENT_META_CUE_POINT      = 0x07;    // not yet handled
+const midibyte EVENT_META_MIDI_CHANNEL   = 0x20;    // not yet handled, obsolete
+const midibyte EVENT_META_MIDI_PORT      = 0x21;    // not yet handled, obsolete
+const midibyte EVENT_META_END_OF_TRACK   = 0x2F;
 const midibyte EVENT_META_SET_TEMPO      = 0x51;
+const midibyte EVENT_META_SMPTE_OFFSET   = 0x54;    // not yet handled
 const midibyte EVENT_META_TIME_SIGNATURE = 0x58;
+const midibyte EVENT_META_KEY_SIGNATURE  = 0x59;
+const midibyte EVENT_META_SEQSPEC        = 0x7F;
 
 /**
  *  As a "type" (overloaded on channel) value for a Meta event, 0xFF indicates
@@ -156,12 +203,12 @@ const midibyte EVENT_META_ILLEGAL        = 0xFF;      // a problem code
 /**
  *  This value of 0xFF is Sequencer64's channel value that indicates that
  *  the event's m_channel value is bogus.  However, it also means that the
- *  channel is encoded in the m_status byte itself.  This is our work around
- *  to be able to hold a multi-channel SMF 0 track in a sequence.  In a
- *  Sequencer64 SMF 0 track, every event has a channel.  In a Sequencer64 SMF
- *  1 track, the events do not have a channel.  Instead, the channel is a
- *  global value of the sequence, and is stuffed into each event when the
- *  event is played or is written to a MIDI file.
+ *  channel, if applicable to the event, is encoded in the m_status byte
+ *  itself.  This is our work around to be able to hold a multi-channel SMF 0
+ *  track in a sequence.  In a Sequencer64 SMF 0 track, every event has a
+ *  channel.  In a Sequencer64 SMF 1 track, the events do not have a channel.
+ *  Instead, the channel is a global value of the sequence, and is stuffed
+ *  into each event when the event is played or is written to a MIDI file.
  */
 
 const midibyte EVENT_NULL_CHANNEL        = 0xFF;
@@ -188,6 +235,10 @@ const int EVENTS_UNSELECTED              =  0;
  *
  * \param status
  *      The type of event, which might be EVENT_NOTE_ON.
+ *
+ * \param data
+ *      The data byte to check.  It should be zero for a note-on is note-off
+ *      event.
  */
 
 inline bool
@@ -257,7 +308,7 @@ private:
      *
      *  Overload:  For Meta events, where is_meta() is true, this value holds
      *  the type of Meta event. See the editable_event::sm_meta_event_names[]
-     *  array.  Note that EVENT_META_ILLEGAL (0xFF) indicates and illegal Meta
+     *  array.  Note that EVENT_META_ILLEGAL (0xFF) indicates an illegal Meta
      *  event.
      */
 
@@ -274,7 +325,8 @@ private:
     /**
      *  The data buffer for SYSEX messages.  Adapted from Stazed's Seq32
      *  project on GitHub.  This object will also hold the generally small
-     *  amounts of data needed for Meta events.
+     *  amounts of data needed for Meta events.  Compare is_sysex() to
+     *  is_meta() and is_ex_data() [which tests for both].
      */
 
     SysexContainer m_sysex;
@@ -559,23 +611,7 @@ public:
     void set_status (midibyte status);
     void set_status (midibyte eventcode, midibyte channel);
     void set_meta_status (midibyte metatype);
-
-    /**
-     *  This function is used in recording to preserve the input channel
-     *  information for deciding what to do with an incoming MIDI event.
-     *  It replaces stazed's set_status() that had an optional "record"
-     *  parameter.  This call allows channel to be detected and used in MIDI
-     *  control events.
-     *
-     * \param eventcode
-     *      The status byte, generally read from the MIDI buss.
-     */
-
-    void set_status_keep_channel (midibyte eventcode)
-    {
-        m_status = eventcode;
-        m_channel = eventcode & EVENT_GET_CHAN_MASK;
-    }
+    void set_status_keep_channel (midibyte eventcode);
 
     /**
      *  Sets the channel "nybble", without modifying the status "nybble".
@@ -583,16 +619,20 @@ public:
      *  channel generally overrides this value in the usage of the event.
      *
      * \param channel
-     *      The channel byte to be set.
+     *      The channel byte to be set.  It is masked to ensure the value
+     *      ranges from 0x0 to 0xF.  This update should be safe, but we could
+     *      allow EVENT_NULL_CHANNEL if issues are uncovered.
      */
 
     void set_channel (midibyte channel)
     {
-        m_channel = channel;
+        m_channel = (channel == EVENT_NULL_CHANNEL) ?
+            EVENT_NULL_CHANNEL : (channel & EVENT_GET_CHAN_MASK) ;
     }
 
     /**
      * \getter m_status
+     *      Note that we have ensured that status ranges from 0x80 to 0xFF.
      */
 
     midibyte get_status () const
@@ -737,6 +777,7 @@ public:
     bool append_sysex (midibyte * data, int len);
     bool append_sysex (midibyte data);
     bool append_meta_data (midibyte metatype, midibyte * data, int len);
+    bool append_meta_data (midibyte metatype, const std::vector<midibyte> & data);
     void restart_sysex ();              // kind of useless
 
     /**
@@ -1050,6 +1091,8 @@ public:
         return is_note_off_velocity(m_status, m_data[1]);
     }
 
+    void adjust_note_off ();
+
     /**
      *  Indicates if the m_status value is a one-byte message (Program Change
      *  or Channel Pressure.  Channel is stripped, because sometimes we keep
@@ -1096,6 +1139,8 @@ public:
 
     /**
      *  Indicates if we need to use extended data (SysEx or Meta).
+     *  If true, then the m_channel byte is used to encode the type of meta
+     *  event.
      */
 
     bool is_ex_data () const
@@ -1123,6 +1168,16 @@ public:
     bool is_time_signature () const
     {
         return is_meta() && m_channel == EVENT_META_TIME_SIGNATURE; /* 0x58 */
+    }
+
+    /**
+     *  Indicates if the event is a Key Signature event.  See
+     *  sm_meta_event_names[].
+     */
+
+    bool is_key_signature () const
+    {
+        return is_meta() && m_channel == EVENT_META_KEY_SIGNATURE;  /* 0x59 */
     }
 
     void print () const;

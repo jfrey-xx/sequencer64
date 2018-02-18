@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-13
+ * \updates       2018-01-11
  * \license       GNU GPLv2 or above
  *
  *  Note that this representation is, in a sense, inside the mainwnd
@@ -304,9 +304,9 @@ mainwid::draw_sequence_on_pixmap (int seqnum)
         (
             black(), base_x, base_y, m_seqarea_x, m_seqarea_y
         );
-        if (perf().is_active(seqnum))
+        sequence * seq = perf().get_sequence(seqnum);
+        if (not_nullptr(seq))                       // perf().is_active(seqnum)
         {
-            sequence * seq = perf().get_sequence(seqnum);
             bool empty_highlight = perf().highlight(*seq);
             bool smf_0 = perf().is_smf_0(*seq);
 #ifdef SEQ64_EDIT_SEQUENCE_HIGHLIGHT
@@ -458,7 +458,8 @@ mainwid::draw_sequence_on_pixmap (int seqnum)
 
             /*
              * Draw the inner rectangle containing the notes of a sequence.
-             * If queued, color the rectangle grey.
+             * If queued, color the rectangle grey.  If one-shot queued, color
+             * it light grey.
              */
 
             if (seq->get_queued())
@@ -466,14 +467,21 @@ mainwid::draw_sequence_on_pixmap (int seqnum)
                 draw_rectangle_on_pixmap(grey(), x, y, lx, ly);
                 fg_color(black());
             }
+#ifdef SEQ64_SONG_RECORDING
+            else if (seq->one_shot())
+            {
+                draw_rectangle_on_pixmap(light_grey(), x, y, lx, ly);
+                fg_color(black());
+            }
+#endif
             draw_rectangle_on_pixmap(fg_color(), x, y, lx, ly, false);
 
-            int low_note;                                // for side-effect
-            int high_note;                               // ditto
+            int low_note;                                   // for side-effect
+            int high_note;                                  // ditto
             bool have_notes = seq->get_minmax_note_events(low_note, high_note);
             if (have_notes)
             {
-                int height = high_note - low_note + 2;    // 2-pixel border
+                int height = high_note - low_note + 2;      // 2-pixel border
                 int len = seq->get_length();
                 midipulse tick_s;
                 midipulse tick_f;
@@ -738,7 +746,8 @@ mainwid::update_markers (int tick)
  *      compiled in (i.e. no --disable-pause in the configuration), then this
  *      parameter is ignored, and is replaced by the sequences'
  *      get_lask_tick() value.  This causes correct stop/pause/play
- *      progress-bar behavior in each pattern slot.
+ *      progress-bar behavior in each pattern slot.  Note: This is now
+ *      independent of the --disable-pause option!
  */
 
 void
@@ -761,19 +770,18 @@ mainwid::draw_marker_on_sequence (int seqnum, int tick)
         if (seq->event_count() == 0)        /* an event-free track          */
             return;                         /* new 2015-08-23 don't update  */
 
-        tick = seq->get_last_tick();        /* seems to work, see banner    */
-
         int base_x, base_y;
         calculate_base_sizes(seqnum, base_x, base_y);    /* side-effects    */
 
         int rect_x = base_x + m_text_size_x - 1;
         int rect_y = base_y + m_text_size_y + m_text_size_x - 1;
         int len = seq->get_length();
+        tick = int(seq->get_last_tick());   /* seems to work, see banner    */
         tick += len - seq->get_trigger_offset();
         tick %= len;
 
-        midipulse tick_x = tick * m_seqarea_seq_x / len;
-        int bar_x = rect_x + m_last_tick_x[seqnum];
+        long tick_x = tick * m_seqarea_seq_x / len;
+        int bar_x = rect_x + int(m_last_tick_x[seqnum]);
         int thickness = 1;
         if (usr().progress_bar_thick())
         {
@@ -796,6 +804,12 @@ mainwid::draw_marker_on_sequence (int seqnum, int tick)
             {
                 m_gc->set_foreground(black());
             }
+#ifdef SEQ64_SONG_RECORDING
+            else if (seq->one_shot())
+            {
+                m_gc->set_foreground(blue());
+            }
+#endif
             else
             {
                 /*
@@ -823,7 +837,7 @@ mainwid::draw_marker_on_sequence (int seqnum, int tick)
 }
 
 /**
- *  Translates XY coordiinates in the Patterns Panel to a sequence number.
+ *  Translates XY coordinates in the Patterns Panel to a sequence number.
  *
  * \param x
  *      Provides the x coordinate.
@@ -888,6 +902,12 @@ mainwid::seq_from_xy (int x, int y)
 int
 mainwid::set_screenset (int ss, bool setperf)
 {
+    /*
+     * TODO:  consider only doing this if ss != m_screenset.
+     */
+
+    if (ss != m_screenset)
+    {
 #if defined SEQ64_MULTI_MAINWID
     if (m_is_multi_wid || setperf)
         perf().set_screenset(ss);
@@ -899,6 +919,7 @@ mainwid::set_screenset (int ss, bool setperf)
     m_screenset = perf().screenset();
     m_screenset_offset = perf().screenset_offset();
     reset();                                    /* redraws the window   */
+    }
     return m_screenset;
 }
 

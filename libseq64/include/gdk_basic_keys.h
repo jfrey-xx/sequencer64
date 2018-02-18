@@ -278,7 +278,7 @@ namespace seq64
 /**
  *  Types of modifiers, essentially copied from gtk-2.0/gdk/gdktypes.h.
  *  We have to tweak the names to avoid redeclaration errors and to
- * "personalize" the values.  We change "GDK" to "SEQ64".
+ *  "personalize" the values.  We change "GDK" to "SEQ64".
  *
  *  Since we're getting events from, say Gtk-2.4, but using our (matching)
  *  values for comparison, use the CAST_EQUIVALENT() macro to compare them.
@@ -325,8 +325,8 @@ typedef enum
  *
  *  Since we're getting events from, say Gtk-2.4, but using our (matching)
  *  values for comparison, use the CAST_EQUIVALENT() macro to compare them.
- *  Note that we might still end up having to a remapping (e.g. if trying to
- *  get the code to work with the Qt framework).
+ *  Note that we might still end up having to do a remapping (e.g. if trying
+ *  to get the code to work with the Qt framework).
  */
 
 typedef enum

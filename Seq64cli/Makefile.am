@@ -6,7 +6,7 @@
 # \library    	seq64cli application
 # \author     	Chris Ahlstrom
 # \date       	2017-04-07
-# \update      2017-09-05
+# \update      2017-11-12
 # \version    	$Revision$
 # \license    	$XPC_SUITE_GPL_LICENSE$
 #
@@ -96,15 +96,9 @@ libseq_portmididir = $(builddir)/seq_portmidi/src/.libs
 #------------------------------------------------------------------------------
 
 if BUILD_WINDOWS
-AM_CXXFLAGS = \
- -I$(top_srcdir)/libseq64/include \
- -I$(top_srcdir)/seq_portmidi/include
+AM_CXXFLAGS = -I$(top_srcdir)/libseq64/include -I$(top_srcdir)/seq_portmidi/include
 else
-AM_CXXFLAGS = \
- -I$(top_srcdir)/libseq64/include \
- -I$(top_srcdir)/seq_rtmidi/include \
- $(JACK_CFLAGS) \
- $(LASH_CFLAGS)
+AM_CXXFLAGS = -I$(top_srcdir)/libseq64/include -I$(top_srcdir)/seq_rtmidi/include $(JACK_CFLAGS) $(LASH_CFLAGS)
 endif
 
 #******************************************************************************
@@ -136,14 +130,9 @@ libmath = -lm
 #----------------------------------------------------------------------------
 
 if BUILD_WINDOWS
-libraries = \
- -L$(libseq64dir) -lseq64 \
- -L$(libseq_portmididir) -lseq_portmidi \
- -lwinmm
+libraries = -L$(libseq64dir) -lseq64 -L$(libseq_portmididir) -lseq_portmidi -lwinmm
 else
-libraries = \
- -L$(libseq64dir) -lseq64 \
- -L$(libseq_rtmididir) -lseq_rtmidi
+libraries = -L$(libseq64dir) -lseq64 -L$(libseq_rtmididir) -lseq_rtmidi
 endif
 
 #****************************************************************************
@@ -157,13 +146,9 @@ endif
 #----------------------------------------------------------------------------
 
 if BUILD_WINDOWS
-dependencies = \
- $(libseq_portmididir)/libseq_portmidi.la \
- $(libseq64dir)/libseq64.la
+dependencies = $(libseq_portmididir)/libseq_portmidi.la $(libseq64dir)/libseq64.la
 else
-dependencies = \
- $(libseq_rtmididir)/libseq_rtmidi.la \
- $(libseq64dir)/libseq64.la
+dependencies = $(libseq_rtmididir)/libseq_rtmidi.la $(libseq64dir)/libseq64.la
 endif
 
 #******************************************************************************

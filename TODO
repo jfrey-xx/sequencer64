@@ -1,11 +1,12 @@
 To-Do Items
 Chris Ahlstrom
-2016-12-03 to 2017-08-30
+2016-12-03 to 2018-01-29
 
-Debian packaging:
+Debian (and other) Packaging:
 
-    *   Need a Sequencer64-debian project to hold packages for convenience.
-    -   Update documentation for the build processes.
+    -   Still need to get a static package to work.
+    -   Refresh the verbatim examples for the "rc" and "usr" files
+        in the sequencer64-doc project.
 
 Windows:
 
@@ -14,29 +15,59 @@ Windows:
     -   Master MingW.
     -   Add Windows implementation and build files.
     -   Add NSIS installer creation.
+    -   Get basic Qt 5 support working.
 
 Tempo Track:
 
-    -   Separate tempo for each pattern (a feature request)?
-
-    1:1 Program         C0 (192), seqdata tries to draw it (height == 0)
-    1:1 Tempo           seqdata tries to draw it
-    1:1 Time Sig        seqdata skips all other "ex-data" events
-    1:3 Note on         90 (144)
-    2:1 Note off        80 (128)
-
-    This whole set of get_next_event() calls occurs multiple (11) times!
-
+    -   Separate tempo for each pattern (a feature request)?  This might be
+        equivalent to supporting the rarely-implemented SMF 2.
     -   Provide a key or press to insert a tempo event at current mouse
-        position in time and tempo-height.
+        position in time and tempo-height?
     -   The sequence draw marker still can get messed up by seqedit, and
         mess up the drawing of the tempo track in perfroll.
+    -   The PrCh and Tempo messages group keep swapping locations with the
+        TimeSig message.  Weird!  Sad!
+
+            midi_container::fill()
+                m_events.sort()
+
+Modify flag:
+
+    -   sequence::set_transposable() is called when loading a sequence at
+        startup.  If the flag value is different from the current value
+        (false?) then sequence::modify() is called, but the perform m_parent
+        is null, so it does not take effect, which is good in this case
+        (startup).  At that time, we have m_transposable == true, flag = false
+        (!), and the sequence number is (-1).
+    -   If the velocity of notes is edited in the data panel of seqedit,
+        the modification is not detected.
 
 Hot bugs:
 
+    -   JACK MIDI does not auto connect with the JACK connect button is
+        clicked.
+    -   Clicking the Stop button toggles (!) playback if Space is configured
+        to both start and stop playback!!
+    -   If the MIDI file has no performance info (triggers), make the
+        Song/Live button show "Live".
+    -   When recording a short pattern, and holding a note across the
+        pattern end, the drawing is bad.  Probably should just delete such
+        notes.
     -   Pressing the keep-queue activates the Q button, but pressing another
         key, or the temporary queue key, or changing the current screen set,
         does *not* de-activate the keep-queue status.
+    -   Doing "/1" to turn on queueing seems to require "1" to be struck twice.
+        sequence::set_playing() turns it off.  This was due to the "/" key
+        being defined as both the Slot Shift key and the Queue key.  We should
+        detect duplicates!  Sad!  Also note that, in the traditional
+        [keyboard-group] setup, the keys 9, 0, o, l, and p are available.
+        Kepler34 devotes the "." to the one-shot feature.  Where can we put
+        this, our main keyboard tab is filled!  Looks like [extended-keys] is
+        the only place for "One-Shot Song Record".  For the queue key, 'o' is
+        a good mnemonic choice for "queue on/off". 
+    -   Song-recording does not respect the snap setting on muting.
+    -   Song-recording does not respect the queuing feature; the trigger
+        is created as soon as queuing is turned on.
 
 Rtmidi implementation issues to work out:
 
@@ -52,16 +83,10 @@ Hot ideas (from GitHub):
         are armed.
     -   Any way to make playback multicore?  The "stress" file maxes out a
         core.
-    -   Issue: With sets=8x12, the stress MIDI file will crash at load or
-        exit, with bad sequence #108 (out of 128 loaded).
-    -   Display sequence number in sequence and event editors.
 
 Puzzles:
 
-    -   Need to catch up the man pages with the --help option!!!
     -   Tooltips are too flickery with unclutter enabled.
-    -   When reading the "stress" file, we get this message: "Near offset
-        0x16aca9: 'End-of-file', further MIDI reading disabled".
     -   In multi-wid indep mode, when set 1 (second set) is showing in slots 1
         and 2, clicking on pattern-slot 0 (pattern 32) in slot 1 toggles only
         the pattern in pattern slot 0, but clicking on the same pattern-slot
@@ -75,12 +100,50 @@ Puzzles:
         basically works, but in Seq64 it unmutes all other patterns!
         Using a non-shift character seems to work in both, though in Seq64 the
         repeat-key rate seems to show up as an mildly annoying jitter.
-    -   Toggle JACK keys does nothing.
-    -   Need to disable ALSA button on playback as well, and document it
-        in sequencer64-doc.
-    -   No song, press Space to start.  The buttons disable.  Press space
-        again, and the buttons enable, though app is still playing (the pill
-        is moving.).
+    -   Toggle JACK keys does nothing.  (What does this even mean?  Was I
+        drunk when I wrote it?)
+
+More issues:
+
+ 1. Does the Replace/Solo feature work?
+
+    a. Hot-key.  This does not work until the "keep queue" key is pressed.
+       Then, pressing the "replace" key and a pattern hot-key simultaneously
+       queues all the other patterns to turn off at the end of their pattern.
+
+    b. The Shift-click works both ways in the patterns panel, but only mutes
+       (does not unmute, even though the color changes back) in the song editor!
+       WRONG.  IT WORKS in both windows..
+
+ 2. Why do the two B4 files (GM vs patchless) play at different BPMs?
+
+ 3. Check logic for playback, menu-disabling, and Menu button.
+
+ 4. JACK
+
+    a. With no JACK transport/MIDI in play, changing BPM control -->
+
+       jack_transport_reposition called with a NULL client
+       jack_transport_reposition(): bad position structure
+
+    b. Playback without a client (such as Yoshimi) proceeds fine in ALSA, but
+       not in JACK.  Turns out the reason is:
+
+        register_port: JACK error registering port seq64 midi in 0
+
+       So, at some point, ...
+
+ 5. Patterns panel arrow key does not snap to position, it moves a whole snap
+    position.
+
+ 6. File / New needs to render the current filename inactive, otherwise
+    the previous file is overwritten.
+
+ x. Features:
+
+   a. If in Song Mode, and all patterns end, end the playback as well.
+
+   b. A way to place progress-bar at desired location (seq32? kepler34?).
 
 Tests:
 

@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-10-30
- * \updates       2017-08-03
+ * \updates       2017-10-28
  * \license       GNU GPLv2 or above
  *
  *  Man, we need to learn a lot more about triggers.  One important thing to
@@ -83,6 +83,7 @@ triggers::triggers (sequence & parent)
  :
     m_parent                    (parent),
     m_triggers                  (),
+    m_number_selected           (0),
     m_clipboard                 (),
     m_undo_stack                (),
     m_redo_stack                (),
@@ -137,11 +138,6 @@ triggers::operator = (const triggers & rhs)
         m_iterator_play_trigger = rhs.m_iterator_play_trigger;
         m_iterator_draw_trigger = rhs.m_iterator_draw_trigger;
         m_trigger_copied = rhs.m_trigger_copied;
-        
-        /*
-         * \new ca 2016-02-14
-         */
-
         m_ppqn = rhs.m_ppqn;
         m_length = rhs.m_length;
     }
@@ -154,7 +150,7 @@ triggers::operator = (const triggers & rhs)
  */
 
 void
-triggers::push_undo ()                  // was push_trigger_undo ()
+triggers::push_undo ()
 {
     m_undo_stack.push(m_triggers);
     for
@@ -163,7 +159,7 @@ triggers::push_undo ()                  // was push_trigger_undo ()
         i != m_undo_stack.top().end(); ++i
     )
     {
-        i->selected(false);
+        unselect(*i, false);        /* do not count this unselection    */
     }
 }
 
@@ -213,6 +209,17 @@ triggers::pop_redo ()
  *  The first start or end trigger that is past the end tick cause the search
  *  to end.
  *
+ *                  -------------------------------------
+ *      tick_start |                                     | tick_end
+ *                  -------------------------------------
+ *                 start_tick     ||                     start_tick ||
+ *                 end_tick       ||                     end_tick
+ *
+ * Song recording:
+ *
+ *      If we've reached a new chunk of drawn sequences in the song data, and
+ *      we're not recording, unset the block on this sequence's events.
+ *
  *  If the trigger state has changed, then the start/end ticks are passed back
  *  to the sequence, and the trigger offset is adjusted.
  *
@@ -224,41 +231,73 @@ triggers::pop_redo ()
  *      Provides the ending tick value, and returns the modified value as a
  *      side-effect.
  *
+ * \param resume_note_ons
+ *      Indicates what to do with notes when song-recording.
+ *
  * \return
  *      Returns true if we're through playing the frame (trigger turning off),
  *      and the caller should stop the playback.
  */
 
 bool
-triggers::play (midipulse & start_tick, midipulse & end_tick)
+triggers::play
+(
+    midipulse & start_tick,
+    midipulse & end_tick
+#ifdef SEQ64_SONG_RECORDING
+    , bool resume_note_ons
+#endif
+)
 {
-    bool result = false;                    /* turns off after frame play */
-    bool trigger_state = false;
+#ifdef SEQ64_SONG_RECORDING
+    midipulse tick = start_tick;            /* saved for later              */
+#endif
+
+    bool result = false;                    /* turns off after frame play   */
     midipulse trigger_offset = 0;
     midipulse trigger_tick = 0;
+    bool trigger_state = false;
     for (List::iterator i = m_triggers.begin(); i != m_triggers.end(); ++i)
     {
-        if (i->tick_start() <= end_tick)
+
+#ifdef SEQ64_SONG_RECORDING
+        if (i->at_trigger_transition(start_tick, end_tick))
+            m_parent.song_playback_block(false);
+#endif
+
+        midipulse trigstart = i->tick_start();
+        midipulse trigend = i->tick_end();
+        midipulse trigoffset = i->offset();
+        if (trigstart <= end_tick)
         {
             trigger_state = true;
-            trigger_tick = i->tick_start();
-            trigger_offset = i->offset();
+            trigger_tick = trigstart;
+            trigger_offset = trigoffset;
         }
-        if (i->tick_end() <= end_tick)
+        if (trigend <= end_tick)
         {
             trigger_state = false;
-            trigger_tick = i->tick_end();
-            trigger_offset = i->offset();
+            trigger_tick = trigend;
+            trigger_offset = trigoffset;
         }
-        if (i->tick_start() > end_tick || i->tick_end() > end_tick)
+        if (trigstart > end_tick || trigend > end_tick)
             break;
     }
 
     /*
-     * Had triggers in the slice, not equal to current state.
+     * Had triggers in the slice, not equal to current state.  Therefore, it
+     * is time to change the sequence trigger state.  We only change state if
+     * we are not improvising.
      */
 
-    if (trigger_state != m_parent.get_playing())
+    bool ok = trigger_state != m_parent.get_playing();
+
+#ifdef SEQ64_SONG_RECORDING
+    if (ok)
+        ok = ! m_parent.song_playback_block();
+#endif
+
+    if (ok)
     {
         if (trigger_state)                              /* turning on   */
         {
@@ -268,14 +307,32 @@ triggers::play (midipulse & start_tick, midipulse & end_tick)
                 start_tick = trigger_tick;              /* side-effect  */
 
             m_parent.set_playing(true);
+
+#ifdef SEQ64_SONG_RECORDING
+
+            /*
+             * If triggered between a Note On and a Note Off, then play it.
+             */
+
+            if (resume_note_ons)
+                m_parent.resume_note_ons(tick);
+#endif
         }
         else
         {
             end_tick = trigger_tick;                    /* on, turning off  */
-            result = true;                              /* done             */
+            result = true;                              /* done, ditto      */
         }
     }
-    if (m_triggers.size() == 0 && m_parent.get_playing())
+
+    bool offplay = m_triggers.size() == 0 && m_parent.get_playing();
+
+#ifdef SEQ64_SONG_RECORDING
+    if (offplay)
+        offplay = ! m_parent.song_playback_block();
+#endif
+
+    if (offplay)
         m_parent.set_playing(false);                    /* stop playing     */
 
     m_parent.set_trigger_offset(trigger_offset);
@@ -354,7 +411,7 @@ triggers::add
 {
     trigger t;
     t.offset(fixoffset ? adjust_offset(offset) : offset);
-    t.selected(false);
+    unselect(t, false);                 /* do not count this unselection    */
     t.tick_start(tick);
     t.tick_end(tick + len - 1);
 
@@ -368,19 +425,22 @@ triggers::add
 
     for (List::iterator i = m_triggers.begin(); i != m_triggers.end(); ++i)
     {
-        if (i->tick_start() >= t.tick_start() && i->tick_end() <= t.tick_end())
+        midipulse tickstart = i->tick_start();
+        midipulse tickend = i->tick_end();
+        if (tickstart >= t.tick_start() && tickend <= t.tick_end())
         {
-            m_triggers.erase(i);                /* inside the new one? erase  */
-            i = m_triggers.begin();             /* THERE IS A BETTER WAY      */
+            unselect(*i);                       /* adjust selection count    */
+            m_triggers.erase(i);                /* inside the new one? erase */
+            i = m_triggers.begin();             /* THERE IS A BETTER WAY     */
             continue;
         }
-        else if (i->tick_end() >= t.tick_end() && i->tick_start() <= t.tick_end())
+        else if (tickend >= t.tick_end() && tickstart <= t.tick_end())
         {
             i->tick_start(t.tick_end() + 1);    /* is the event's end inside? */
         }
         else if
         (
-            i->tick_end() >= t.tick_start() && i->tick_start() <= t.tick_start()
+            tickend >= t.tick_start() && tickstart <= t.tick_start()
         )
         {
             i->tick_end(t.tick_start() - 1);    /* last start inside new end? */
@@ -429,6 +489,21 @@ triggers::intersect (midipulse position, midipulse & start, midipulse & ender)
 }
 
 /**
+ *
+ */
+
+bool
+triggers::intersect (midipulse position)
+{
+    for (List::iterator i = m_triggers.begin(); i != m_triggers.end(); ++i)
+    {
+        if (i->tick_start() <= position && position <= i->tick_end())
+            return true;
+    }
+    return false;
+}
+
+/**
  *  Grows a trigger.  This function looks for the first trigger where
  *  the tickfrom parameter is between the trigger's tick-start and tick-end
  *  values.  If found then the trigger's start is moved back to tickto, if
@@ -451,19 +526,20 @@ triggers::intersect (midipulse position, midipulse & start, midipulse & ender)
 void
 triggers::grow (midipulse tickfrom, midipulse tickto, midipulse len)
 {
-    for (List::iterator i = m_triggers.begin(); i != m_triggers.end(); ++i)
+    for (List::iterator it = m_triggers.begin(); it != m_triggers.end(); ++it)
     {
-        if (i->tick_start() <= tickfrom && tickfrom <= i->tick_end())
+        midipulse start = it->tick_start();
+        midipulse ender = it->tick_end();
+        if (start <= tickfrom && tickfrom <= ender)
         {
-            midipulse start = i->tick_start();
-            midipulse ender = i->tick_end();
+            midipulse calcend = tickto + len - 1;
             if (tickto < start)
                 start = tickto;
 
-            if ((tickto + len - 1) > ender)
-                ender = tickto + len - 1;
+            if (calcend > ender)
+                ender = calcend;
 
-            add(start, ender - start + 1, i->offset());
+            add(start, ender - start + 1, it->offset());
             break;
         }
     }
@@ -484,6 +560,7 @@ triggers::remove (midipulse tick)
     {
         if (i->tick_start() <= tick && tick <= i->tick_end())
         {
+            unselect(*i);                       /* adjust selection count    */
             m_triggers.erase(i);
             break;
         }
@@ -543,6 +620,47 @@ triggers::split (midipulse splittick)
             }
             break;
         }
+    }
+}
+
+/**
+ *  If the tick is between the start and end of this trigger...
+ */
+
+void
+triggers::half_split (midipulse splittick)
+{
+    List::iterator i = m_triggers.begin();
+    while (i != m_triggers.end())
+	{
+        if ( i->tick_start() <= splittick && i->tick_end() >= splittick )
+        {
+            long tick = i->tick_end() - i->tick_start();
+            ++tick;
+            tick /= 2;
+            split(*i, i->tick_start() + tick);
+            break;
+        }
+        ++i;
+    }
+}
+
+/**
+ *  If the tick is between the start and end of this trigger...
+ */
+
+void
+triggers::exact_split (midipulse splittick)
+{
+    List::iterator i = m_triggers.begin();
+    while (i != m_triggers.end())
+	{
+        if (i->tick_start() <= splittick && i->tick_end() >= splittick)
+        {
+            split(*i, splittick);
+            break;
+        }
+        ++i;
     }
 }
 
@@ -662,7 +780,6 @@ triggers::copy (midipulse starttick, midipulse distance)
             midipulse tickend = i->tick_end();
             trigger t;
             t.offset(i->offset());
-            t.selected(false);
             t.tick_start(tickstart - distance);
             if (tickend <= from_end_tick)
                 t.tick_end(tickend - distance);
@@ -722,6 +839,7 @@ triggers::move (midipulse starttick, midipulse distance, bool direction)
             i->tick_end() <= endtick && ! direction
         )
         {
+            unselect(*i);                       /* adjust selection count    */
             m_triggers.erase(i);
             i = m_triggers.begin();                     /* A BETTER WAY? */
         }
@@ -813,9 +931,9 @@ triggers::get_selected_end ()
  *
  *  The \a which parameter has three possible values:
  *
- *  -#  If we are moving the 0, use first as offset.
- *  -#  If we are moving the 1, use the last as the offset.
- *  -#  If we are moving both (2), use first as offset.
+ *  -#  If we are moving 0 (GROW_START), use first as offset.
+ *  -#  If we are moving the 1 (GROW_END), use the last as the offset.
+ *  -#  If we are moving both, 2 (GROW_MOVE), use first as offset.
  *
  * \param tick
  *      The tick at which the trigger starts.
@@ -842,19 +960,18 @@ triggers::move_selected (midipulse tick, bool fixoffset, grow_edit_t which)
 {
     bool result = true;
     midipulse mintick = 0;
-    midipulse maxtick = 0x7ffffff;
+    midipulse maxtick = 0x7ffffff;                          /* 0x7fffffff ? */
     List::iterator s = m_triggers.begin();
     for (List::iterator i = m_triggers.begin(); i != m_triggers.end(); ++i)
     {
         if (i->selected())
         {
             /*
-             * Too tricky.  Beware the side-effect of incrementing the
-             * i iterator.
+             * Too tricky.  Beware the side-effect of incrementing i.
              */
 
             s = i;
-            if (++i != m_triggers.end())
+            if (++i != m_triggers.end())                    /* side-effect  */
                 maxtick = i->tick_start() - 1;
 
             midipulse deltatick = 0;
@@ -913,6 +1030,31 @@ triggers::move_selected (midipulse tick, bool fixoffset, grow_edit_t which)
     return result;
 }
 
+#ifdef SEQ64_SONG_BOX_SELECT
+
+void
+triggers::offset_selected (midipulse tick, grow_edit_t editmode)
+{
+    List::iterator i = m_triggers.begin();
+    while (i != m_triggers.end())
+    {
+        if (i->selected())
+        {
+            if (editmode == GROW_START || editmode == GROW_MOVE)
+                i->increment_tick_start(tick);
+
+            if (editmode == GROW_END || editmode == GROW_MOVE)
+                i->increment_tick_end(tick);
+
+            if (editmode == GROW_MOVE)
+                i->increment_offset(tick);
+        }
+        ++i;
+    }
+}
+
+#endif  // SEQ64_SONG_BOX_SELECT
+
 /**
  *  Get the ending value of the last trigger in the trigger-list.
  *
@@ -943,10 +1085,10 @@ triggers::get_maximum ()
  */
 
 bool
-triggers::get_state (midipulse tick)
+triggers::get_state (midipulse tick) const
 {
     bool result = false;
-    for (List::iterator i = m_triggers.begin(); i != m_triggers.end(); ++i)
+    for (List::const_iterator i = m_triggers.begin(); i != m_triggers.end(); ++i)
     {
         if (i->tick_start() <= tick && tick <= i->tick_end())
         {
@@ -958,9 +1100,9 @@ triggers::get_state (midipulse tick)
 }
 
 /**
- *  Checks the list of triggers against the given tick.  If any
- *  trigger is found to bracket that tick, then true is returned, and
- *  the trigger is marked as selected.
+ *  Selects the desired trigger.  Checks the list of triggers against the given
+ *  tick.  If any trigger is found to bracket that tick, then true is returned,
+ *  and the trigger is marked as selected.
  *
  * \param tick
  *      Provides the tick of interest.
@@ -977,7 +1119,7 @@ triggers::select (midipulse tick)
     {
         if (i->tick_start() <= tick && tick <= i->tick_end())
         {
-            i->selected(true);
+            select(*i);
             result = true;
         }
     }
@@ -985,7 +1127,34 @@ triggers::select (midipulse tick)
 }
 
 /**
- *      Unselects all triggers.
+ *  Unselects the desired trigger.  Checks the list of triggers against the
+ *  given tick.  If any trigger is found to bracket that tick, then true is
+ *  returned, and the trigger is marked as unselected.
+ *
+ * \param tick
+ *      Provides the tick of interest.
+ *
+ * \return
+ *      Returns true if a trigger is found that brackets the given tick.
+ */
+
+bool
+triggers::unselect (midipulse tick)
+{
+    bool result = false;
+    for (List::iterator i = m_triggers.begin(); i != m_triggers.end(); ++i)
+    {
+        if (i->tick_start() <= tick && tick <= i->tick_end())
+        {
+            unselect(*i);
+            result = true;
+        }
+    }
+    return result;
+}
+
+/**
+ *      Unselects all triggers for the sequence.
  *
  * \return
  *      Always returns false.
@@ -995,7 +1164,7 @@ bool
 triggers::unselect ()
 {
     for (List::iterator i = m_triggers.begin(); i != m_triggers.end(); ++i)
-        i->selected(false);
+        unselect(*i);
 
     return false;
 }
@@ -1011,6 +1180,7 @@ triggers::remove_selected ()
     {
         if (i->selected())
         {
+            unselect(*i);               /* this adjusts the selection count */
             m_triggers.erase(i);
             break;
         }
@@ -1150,6 +1320,65 @@ triggers::next_trigger ()
 }
 
 /**
+ *  Selects the given trigger and increments the count of selected triggers if
+ *  appropriate.  Don't confuse this function with select(midipulse).
+ *
+ * \param t
+ *      Provides a reference to the desired trigger.
+ *
+ * \param count
+ *      If true, count the selection.  This can only be done in normal
+ *      triggers, not triggers in the undo container.
+ */
+
+void
+triggers::select (trigger & t, bool count)
+{
+    if (! t.selected())
+    {
+        /*
+         * TMI: infoprint("trigger selected");
+         */
+
+        t.selected(true);
+        if (count)
+            ++m_number_selected;
+    }
+}
+
+/**
+ *  Unselects the given trigger and decrements the count of selected triggers if
+ *  appropriate.  Don't confuse this function with unselect(midipulse).
+ *
+ * \param t
+ *      Provides a reference to the desired trigger.
+ *
+ * \param count
+ *      If true, uncount the selection.  This can only be done in normal
+ *      triggers, not triggers in the undo container.
+ */
+
+void
+triggers::unselect (trigger & t, bool count)
+{
+    if (t.selected())
+    {
+        t.selected(false);
+        if (count)
+        {
+            if (m_number_selected > 0)
+            {
+                --m_number_selected;
+            }
+            else
+            {
+                 warnprint("trigger unselect yields count error");
+            }
+        }
+    }
+}
+
+/**
  *  Prints a list of the currently-held triggers.
  *
  * \param seqname
@@ -1159,7 +1388,11 @@ triggers::next_trigger ()
 void
 triggers::print (const std::string & seqname) const
 {
-    printf("sequence '%s' triggers:\n", seqname.c_str());
+    printf
+    (
+        "sequence '%s' triggers (%d selected):\n",
+        seqname.c_str(), number_selected()
+    );
     for (List::const_iterator i = m_triggers.begin(); i != m_triggers.end(); ++i)
     {
         printf

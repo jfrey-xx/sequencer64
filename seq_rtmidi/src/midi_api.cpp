@@ -3,13 +3,16 @@
  *
  *    A class for a generic MIDI API.
  *
+ * \library       sequencer64 application
  * \author        Gary P. Scavone; refactoring by Chris Ahlstrom
  * \date          2016-11-14
  * \updates       2017-02-16
  * \license       See the rtexmidi.lic file.  Too big for a header file.
  *
- *  In this refactoring...
- *
+ *  In this refactoring, we had to adapt the existing Sequencer64
+ *  infrastructure to how the "RtMidi" library works.  We also had to
+ *  refactor the RtMidi library significantly to fit it within the working
+ *  mode of the Sequencer64 application and libraries.
  */
 
 #include "event.hpp"
@@ -71,17 +74,39 @@ midi_api::~midi_api ()
     // no code
 }
 
+/**
+ *  \return
+ *      Returns true if the port is an input port.
+ */
+
 bool
 midi_api::is_input_port () const
 {
     return parent_bus().is_input_port();
 }
 
+/**
+ *  A virtual port is what Seq24 called a "manual" port.  It is a MIDI port
+ *  that an application can create as if it is a real ALSA port.
+ *
+ *  \return
+ *      Returns true if the port is an input port.
+ */
+
 bool
 midi_api::is_virtual_port () const
 {
     return parent_bus().is_virtual_port();
 }
+
+/**
+ *  A system port is one that is independent of the devices and applications
+ *  that exist.  In the ALSA subsystem, the only system port is the "announce"
+ *  port.
+ *
+ *  \return
+ *      Returns true if the port is an system port.
+ */
 
 bool
 midi_api::is_system_port () const

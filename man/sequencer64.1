@@ -1,4 +1,4 @@
-.TH Sequencer64 "August 16 2017" "Version 0.93.2" "Sequencer64 Manual Page"
+.TH Sequencer64 "January 3 2018" "Version 0.94.2" "Sequencer64 Manual Page"
 
 .SH NAME
 Sequencer64 - Real-time live MIDI sequencer refactored from Seq24
@@ -7,6 +7,8 @@ Sequencer64 - Real-time live MIDI sequencer refactored from Seq24
 .B sequencer64
 [\fIOPTIONS\fP] [\fIFILENAME\fP]
 .B seq64
+[\fIOPTIONS\fP] [\fIFILENAME\fP]
+.B seq64cli
 [\fIOPTIONS\fP] [\fIFILENAME\fP]
 
 .SH DESCRIPTION
@@ -27,8 +29,13 @@ be saved to the "rc" configuration file.
 Display a list of all commandline options.
 
 .TP 8
-.B  \-v, \-\-version
+.B  \-V, \-\-version
 Display the program version.
+
+.TP 8
+.B  \-v, \-\-verbose
+Adds more output to the console, for troubleshooting.  This option
+is not saved to the "rc" configuration file.
 
 .TP 8
 .B  \-H, \-\-home dir

@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-27
+ * \updates       2018-02-03
  * \license       GNU GPLv2 or above
  *
  *  The main window holds the menu and the main controls of the application,
@@ -119,13 +119,14 @@
 #include <gtkmm/table.h>                /* <gtkmm-2.4/grid.h> doesn't exist */
 #endif
 
-#include "pixmaps/pause.xpm"
-#include "pixmaps/play2.xpm"
-#include "pixmaps/stop.xpm"
 #include "pixmaps/learn.xpm"
 #include "pixmaps/learn2.xpm"
+#include "pixmaps/pause.xpm"
+#include "pixmaps/panic.xpm"
 #include "pixmaps/perfedit.xpm"
-#include "pixmaps/route64rwb-32x32.xpm" /* #include "pixmaps/seq64.xpm"     */
+#include "pixmaps/play2.xpm"
+#include "pixmaps/route64rwb-32x32.xpm"     // #include "pixmaps/seq64.xpm"
+#include "pixmaps/stop.xpm"
 
 #ifdef SEQ64_RTMIDI_SUPPORT
 #include "pixmaps/seq64_logo.xpm"
@@ -135,11 +136,22 @@
 #include "pixmaps/sequencer64_legacy.xpm"
 #endif
 
-#ifdef SEQ64_STAZED_MENU_BUTTONS
+#ifdef SEQ64_STAZED_MENU_BUTTONS            // these are too inscrutable
 #include "pixmaps/live_mode.xpm"            // anything better than a mike icon?
 #include "pixmaps/menu.xpm"                 // any better image of a "menu"?
 #include "pixmaps/muting.xpm"               // need better/smaller icon
 #include "pixmaps/song_mode.xpm"            // need better/smaller icon
+#endif
+
+#ifdef SEQ64_SONG_RECORDING
+
+/*
+ *  No longer used.
+ *
+ * #include "pixmaps/song_rec_off.xpm"
+ */
+
+#include "pixmaps/song_rec_on.xpm"
 #endif
 
 #ifdef USE_RECORD_TEMPO_MENU                // too clumsy
@@ -240,9 +252,7 @@ int mainwnd::sm_sigpipe[2];
  *
  * \todo
  *      Offload most of the work into an initialization function like
- *      options does; make the perform parameter a reference;
- *      valgrind flags m_tooltips as lost data, but if we try to manage it
- *      ourselves, many more leaks occur.
+ *      options does; make the perform parameter a reference.
  */
 
 mainwnd::mainwnd
@@ -259,9 +269,9 @@ mainwnd::mainwnd
 ) :
     gui_window_gtk2         (p),
     performcallback         (),
-    m_tooltips              (manage(new Gtk::Tooltips())),  /* valgrind bitches */
     m_menubar               (manage(new Gtk::MenuBar())),
     m_menu_file             (manage(new Gtk::Menu())),
+    m_menu_recent           (nullptr),
     m_menu_edit             (manage(new Gtk::Menu())),
     m_menu_view             (manage(new Gtk::Menu())),
     m_menu_help             (manage(new Gtk::Menu())),
@@ -291,12 +301,14 @@ mainwnd::mainwnd
     m_adjust_ss             (manage(new Gtk::Adjustment(0, 0, c_max_sets-1, 1))),
     m_spinbutton_ss         (manage(new Gtk::SpinButton(*m_adjust_ss))),
 #endif
+    m_current_screenset     (0),
     m_main_time             (manage(new maintime(p, ppqn))),
     m_perf_edit             (new perfedit(p, false /*allowperf2*/, ppqn)),
     m_perf_edit_2           (allowperf2 ? new perfedit(p, true, ppqn) : nullptr),
     m_options               (nullptr),
     m_main_cursor           (),
-    m_image_play            (),
+    m_image_play            (nullptr),
+    m_button_panic          (manage(new Gtk::Button())),    /* from kepler34   */
     m_button_learn          (manage(new Gtk::Button())),    /* group learn (L) */
     m_button_stop           (manage(new Gtk::Button())),
     m_button_play           (manage(new Gtk::Button())),    /* also for pause  */
@@ -305,7 +317,7 @@ mainwnd::mainwnd
     m_is_tempo_recording    (false),
     m_button_perfedit       (manage(new Gtk::Button())),
 #ifdef SEQ64_STAZED_MENU_BUTTONS
-    m_image_songlive        (),
+    m_image_songlive        (nullptr),
     m_button_mode
     (
         usr().use_more_icons() ?
@@ -328,7 +340,15 @@ mainwnd::mainwnd
 #ifdef SEQ64_SHOW_JACK_STATUS
     m_button_jack           (manage(new Gtk::Button("ALSA"))),
 #endif
+#ifdef SEQ64_SONG_RECORDING
+    m_button_song_record    (manage(new Gtk::ToggleButton())),
+    m_button_song_snap      (manage(new Gtk::ToggleButton("S"))),
+    m_is_song_recording     (false),
+    m_is_snap_recording     (false),
+#endif
     m_tick_time             (manage(new Gtk::Label(""))),
+    m_button_time_type      (manage(new Gtk::Button("HMS"))),
+    m_tick_time_as_bbt      (false),
     m_adjust_bpm
     (
         manage
@@ -398,7 +418,7 @@ mainwnd::mainwnd
      */
 
 #if defined SEQ64_MULTI_MAINWID
-    set_resizable(true);                        // set_resizable(multi_wid());
+    set_resizable(true);
 #elif defined SEQ64_JE_PATTERN_PANEL_SCROLLBARS
     set_resizable(! usr().is_default_mainwid_size());
 #else
@@ -589,8 +609,8 @@ mainwnd::mainwnd
     add_tooltip
     (
         m_button_jack,
-        "Shows the current transport mode:  JACK, Master, or ALSA. Click "
-        "this button to bring up the JACK connection options page. Ctrl-P "
+        "MIDI mode: JACK transport Slave or Master, JACK MIDI, or ALSA MIDI. "
+        "Click this button to bring up the JACK connection options page. Ctrl-P "
         "also brings up this page."
     );
     m_button_jack->set_focus_on_click(false);
@@ -618,12 +638,36 @@ mainwnd::mainwnd
     /* Add the time-line and the time-clock */
 
     Gtk::HBox * hbox4 = manage(new Gtk::HBox(false, 0));
-    Gtk::Label * timedummy = manage(new Gtk::Label("   "));
     m_tick_time->set_justify(Gtk::JUSTIFY_LEFT);
+
+    m_button_time_type->set_focus_on_click(false);
+
+    /*
+     * m_button_time_type->set_relief(Gtk::RELIEF_NONE);
+     */
+
+    m_button_time_type->signal_clicked().connect
+    (
+        mem_fun(*this, &mainwnd::toggle_time_format)
+    );
+    add_tooltip
+    (
+        m_button_time_type,
+        "Toggles between B:B:T and H:M:S format, showing the selected format."
+    );
+    tophbox->pack_start(*m_button_time_type, false, false);
+    tophbox->pack_start(*(manage(new Gtk::HSeparator())), false, false, 4);
+
+    Gtk::Label * timedummy = manage(new Gtk::Label("   "));
     hbox4->pack_start(*timedummy, false, false, 0);
+
     hbox4->pack_start(*m_tick_time, false, false, 0);
     vbox_b->pack_start(*hbox4, false, false, 0);
     tophbox->pack_end(*vbox_b, false, false);
+
+    /*
+     * Learn ("L")  button
+     */
 
     m_button_learn->set_focus_on_click(false);
     m_button_learn->set_flags(m_button_learn->get_flags() & ~Gtk::CAN_FOCUS);
@@ -661,6 +705,24 @@ mainwnd::mainwnd
     bottomhbox->pack_start(*startstophbox, Gtk::PACK_SHRINK);
 
     /*
+     * Panic button
+     */
+
+    m_button_panic->set_focus_on_click(false);
+    m_button_panic->set_flags(m_button_panic->get_flags() & ~Gtk::CAN_FOCUS);
+    m_button_panic->set_image(*manage(new PIXBUF_IMAGE(panic_xpm)));
+    m_button_panic->signal_clicked().connect(mem_fun(*this, &mainwnd::panic));
+    add_tooltip
+    (
+        m_button_panic,
+        "Panic button.  A guaranteed stop-all for notes on all busses, "
+        "channels, and keys.  Adapted from Kepler34."
+    );
+    startstophbox->pack_start(*m_button_panic, Gtk::PACK_SHRINK);
+
+    /*
+     * Stop button.
+     *
      * If we don't call this function, then clicking the stop button makes
      * it steal focus, and be "clicked" when the space bar is hit, which is
      * very confusing.
@@ -691,6 +753,36 @@ mainwnd::mainwnd
     add_tooltip(m_button_play, "Start playback from the current location.");
     startstophbox->pack_start(*m_button_play, Gtk::PACK_SHRINK);
     m_button_play->set_sensitive(true);
+
+#ifdef SEQ64_SONG_RECORDING
+
+    m_button_song_record->set_focus_on_click(false);
+    m_button_song_record->add(*manage(new PIXBUF_IMAGE(song_rec_on_xpm)));
+    m_button_song_record->signal_toggled().connect
+    (
+        mem_fun(*this, &mainwnd::set_song_record)
+    );
+    add_tooltip
+    (
+        m_button_song_record,
+        "Click this button to toggle the recording of live changes to the "
+        "song performance, i.e. song recording."
+    );
+    startstophbox->pack_start(*m_button_song_record, false, false);
+
+    m_button_song_snap->set_focus_on_click(false);
+    m_button_song_snap->signal_toggled().connect
+    (
+        mem_fun(*this, &mainwnd::toggle_song_snap)
+    );
+    add_tooltip
+    (
+        m_button_song_snap,
+        "Click this button to toggle the snapping of live song recording."
+    );
+    startstophbox->pack_start(*m_button_song_snap, false, false);
+
+#endif
 
     /*
      * BPM spin button with label.  Be sure to document that right-clicking on
@@ -727,9 +819,9 @@ mainwnd::mainwnd
     add_tooltip
     (
         m_button_tempo_log,
-        "Click this button to add the current tempo as an event at the current "
-        "time.  Recording a tempo event can extend the length of the tempo "
-        "track, which is always pattern 0."
+        "Click this button to add the current tempo as a single event at the "
+        "current time.  Recording a tempo event can extend the length of the "
+        "tempo track, which is pattern 0 by default."
     );
 
     m_button_tempo_record->set_focus_on_click(false);
@@ -743,11 +835,16 @@ mainwnd::mainwnd
         m_button_tempo_record,
         "Click this button to toggle the recording of live changes to the "
         "tempo. Recording tempo events can extend the length of the tempo "
-        "track, which is always pattern 0."
+        "track, which is pattern 0 by default."
     );
 
     m_button_queue->signal_clicked().connect(mem_fun(*this, &mainwnd::queue_it));
-    add_tooltip(m_button_queue, "Shows and toggles the keep-queue status.");
+    add_tooltip
+    (
+        m_button_queue,
+        "Shows and toggles the keep-queue status. Does not show one-shot "
+        "queue status."
+    );
 
     m_adjust_bpm->signal_value_changed().connect
     (
@@ -772,8 +869,22 @@ mainwnd::mainwnd
     bpmhbox->pack_start(*m_button_tap, Gtk::PACK_SHRINK);
 #endif
 
+#define TRY_TEMPO_VBOX
+#ifdef TRY_TEMPO_VBOX
+
+    Gtk::VBox * tempovbox = manage(new Gtk::VBox(true,  0));
+
+    tempovbox->pack_start(*m_button_tempo_log, Gtk::PACK_SHRINK);
+    tempovbox->pack_start(*m_button_tempo_record, Gtk::PACK_SHRINK);
+    bpmhbox->pack_start(*tempovbox, Gtk::PACK_SHRINK);
+
+#else
+
     bpmhbox->pack_start(*m_button_tempo_log, Gtk::PACK_SHRINK);
     bpmhbox->pack_start(*m_button_tempo_record, Gtk::PACK_SHRINK);
+
+#endif
+
     bpmhbox->pack_start(*m_button_queue, Gtk::PACK_SHRINK);
 
     /*
@@ -973,8 +1084,6 @@ mainwnd::mainwnd
         contentvbox->pack_start(*bottomhbox, Gtk::PACK_SHRINK);
     }
 
-    // contentvbox->pack_start(*m_main_wid, Gtk::PACK_SHRINK);
-
     m_main_wid->set_can_focus();            /* from stazed */
     m_main_wid->grab_focus();
 
@@ -1065,6 +1174,8 @@ mainwnd::mainwnd
      * and spacings
      */
 
+    int width = m_main_wid->nominal_width();
+    int height = m_main_wid->nominal_height();
     if (! usr().is_default_mainwid_size())
     {
         resize
@@ -1120,10 +1231,6 @@ mainwnd::~mainwnd ()
     if (not_nullptr(m_options))
         delete m_options;
 
-    /*
-     * delete m_tooltips;
-     */
-
     if (sm_sigpipe[0] != -1)
         close(sm_sigpipe[0]);
 
@@ -1172,12 +1279,9 @@ mainwnd::set_song_mode ()
     else
     {
         std::string label = is_active ? "Song" : " Live ";
-        Gtk::Label * lblptr(dynamic_cast<Gtk::Label *>
-        (
-            m_button_mode->get_child())
-        );
-        if (not_nullptr(lblptr))
-            lblptr->set_text(label);
+        Gtk::Label * lbl(dynamic_cast<Gtk::Label *>(m_button_mode->get_child()));
+        if (not_nullptr(lbl))
+            lbl->set_text(label);
     }
     perf().song_start_mode(is_active);
 }
@@ -1237,7 +1341,9 @@ mainwnd::toggle_menu_mode ()
  *      with the changes.
  *
  * \return
- *      Always returns true.
+ *      Always returns true.  This allows the callback to be called
+ *      repeatedly.  If one wants to stop the timeout callback, then return
+ *      false.
  */
 
 bool
@@ -1253,18 +1359,27 @@ mainwnd::timer_callback ()
      * Calculate the current time, and display it.
      */
 
-    if (perf().is_pattern_playing())            // EXPERIMENTAL
+    if (perf().is_pattern_playing())
     {
-        midi_timing mt
-        (
-            perf().get_beats_per_minute(), perf().get_beats_per_bar(),
-            perf().get_beat_width(), perf().ppqn()
-        );
-        std::string t = pulses_to_measurestring(tick, mt);
-        m_tick_time->set_text(t);
+        midibpm bpm = perf().get_beats_per_minute();
+        int ppqn = perf().ppqn();
+        if (m_tick_time_as_bbt)
+        {
+            midi_timing mt
+            (
+                bpm, perf().get_beats_per_bar(), perf().get_beat_width(), ppqn
+            );
+            std::string t = pulses_to_measurestring(tick, mt);
+            m_tick_time->set_text(t);
+        }
+        else
+        {
+            std::string t = pulses_to_timestring(tick, bpm, ppqn, false);
+            m_tick_time->set_text(t);
+        }
     }
 
-#ifdef SEQ64_USE_DEBUG_OUTPUT_XXX               /* TMI */
+#ifdef SEQ64_USE_DEBUG_OUTPUT_TMI
     static midibpm s_bpm = 0.0;
     if (bpm != s_bpm)
     {
@@ -1276,20 +1391,18 @@ mainwnd::timer_callback ()
     if (m_adjust_bpm->get_value() != bpm)
         m_adjust_bpm->set_value(bpm);
 
-    int screenset = perf().screenset();
-    int newset = m_adjust_ss->get_value();
-    if (newset != screenset)
+    int perfset = perf().screenset();
+    int currset = m_adjust_ss->get_value();
+    if (currset != m_current_screenset || perfset != m_current_screenset)
     {
+        /*
+         * \change ca 2018-02-03 Fixed issue #135, was using newset!
+         */
 
-#if defined SEQ64_MULTI_MAINWID
-        screenset = set_screenset(newset, true);    // handles wrap-around
-        m_adjust_ss->set_value(screenset);
-#else
-        (void) set_screenset(screenset);            // newset ????
-        m_adjust_ss->set_value(screenset);          // newset ????
-#endif
-
-        m_entry_notes->set_text(perf().current_screen_set_notepad());
+        if (currset != m_current_screenset)
+            set_screenset(currset);                 /* handles wrap-around  */
+        else if (perfset != m_current_screenset)
+            set_screenset(perfset);                 /* handles wrap-around  */
     }
 
 #ifdef SEQ64_STAZED_MENU_BUTTONS
@@ -1319,18 +1432,20 @@ mainwnd::timer_callback ()
      * the JACK connection page from the Options dialog.
      */
 
-    std::string label("ALSA");
+    std::string label;
     if (perf().is_jack_running())
     {
         if (rc().with_jack_master())
             label = "Master";
         else if (rc().with_jack_transport())
-            label = "JACK";
+            label = "Slave";
     }
+    else
+        label = "ALSA";
 
 #ifdef SEQ64_RTMIDI_SUPPORT
     if (rc().with_jack_midi())
-        label = "Native";
+        label = "JACK";
 #endif
 
     /*
@@ -1366,7 +1481,8 @@ mainwnd::timer_callback ()
     {
         m_is_running = perf().is_running();
 #ifdef SEQ64_PAUSE_SUPPORT
-        set_play_image(m_is_running);
+        if (! usr().work_around_play_image())
+            set_play_image(m_is_running);
 #endif
     }
 
@@ -1393,21 +1509,24 @@ mainwnd::timer_callback ()
 
 /**
  *  New function to consolidate screen-set handling.  Sets the active
- *  screenset to the given value.  This is use by the main Set spin-button.
+ *  screenset to the given value.  This is used by the main Set spin-button
+ *  and by the timer_callback() function if the screen set is changed via the
+ *  perform object (i.e. via MIDI control).
+ *
+ *  The perform object's screen-set is modified as well.
  *
  * \param screenset
  *      The new prospective screen-set value.  This will become the active
  *      screen-set.
- *
- * \param setperf
- *      If true, the perform object's screen-set is modified as well.
- *      The default value is false.
  */
 
-int
-mainwnd::set_screenset (int screenset, bool setperf)
+void
+mainwnd::set_screenset (int screenset)
 {
-    return m_main_wid->set_screenset(screenset, setperf);
+    m_current_screenset = screenset;
+    m_adjust_ss->set_value(screenset);
+    (void) m_main_wid->set_screenset(screenset, true);
+    m_entry_notes->set_text(perf().current_screen_set_notepad());
 }
 
 /**
@@ -1541,8 +1660,9 @@ mainwnd::options_dialog ()
     if (not_nullptr(m_options))
         delete m_options;
 
-    m_options = new options(*this, perf());
-    m_options->show_all();
+    m_options = new(std::nothrow) options(*this, perf());
+    if (not_nullptr(m_options))
+        m_options->show_all();
 }
 
 /**
@@ -1555,8 +1675,92 @@ mainwnd::jack_dialog ()
     if (not_nullptr(m_options))
         delete m_options;
 
-    m_options = new options(*this, perf(), true);
-    m_options->show_all();
+    m_options = new(std::nothrow) options(*this, perf(), true);
+    if (not_nullptr(m_options))
+        m_options->show_all();
+}
+
+#ifdef SEQ64_SONG_RECORDING
+
+/**
+ *  Sets the song-recording status.  Note that calling this function will
+ *  trigger the button signal callback.
+ */
+
+void
+mainwnd::set_song_record ()
+{
+    m_is_song_recording = m_button_song_record->get_active();
+    perf().song_recording(m_is_song_recording);
+}
+
+/**
+ *  Toggles the recording of the live song control done by the musician.
+ *  This is not a saved setting at this time.
+ *
+ *  There is no need to change the button color or the image, as the control
+ *  itself indicates when song-recording is on.
+ *
+ *      Gtk::Image * image_song = manage(new PIXBUF_IMAGE(song_rec_off_xpm));
+ *      m_button_song_record->set_image(*image_song);
+ */
+
+void
+mainwnd::toggle_song_record ()
+{
+    m_button_song_record->set_active(! m_button_song_record->get_active());
+}
+
+/**
+ *  Toggles the recording of the live song control done by the musician.
+ *  This functionality currently does not have a key devoted to it, nor is it
+ *  a saved setting.
+ */
+
+void
+mainwnd::toggle_song_snap ()
+{
+    m_is_snap_recording = ! m_is_snap_recording;
+    perf().song_record_snap(m_is_snap_recording);
+}
+
+/**
+ *  Sets the playback mode (Live vs Song).
+ *
+ * \param playsong
+ *      Set to true if playback (Song) mode is to be in force.
+ */
+
+void
+mainwnd::set_song_playback (bool playsong)
+{
+    perf().playback_mode(playsong);
+    if (playsong)
+    {
+        m_button_song_record->set_active(true);
+    }
+    else
+    {
+        perf().song_recording(false);
+    }
+}
+
+#endif  // SEQ64_SONG_RECORDING
+
+/**
+ *  Toggles the recording of the live song control done by the musician.
+ *  This functionality currently does not have a key devoted to it, nor is it
+ *  a saved setting.
+ */
+
+void
+mainwnd::toggle_time_format ()
+{
+    m_tick_time_as_bbt = ! m_tick_time_as_bbt;
+    std::string label = m_tick_time_as_bbt ? "BBT" : "HMS" ;
+    Gtk::Label * lbl(dynamic_cast<Gtk::Label *>(m_button_time_type->get_child()));
+    if (not_nullptr(lbl))
+        lbl->set_text(label);
 }
 
 /**
@@ -1722,16 +1926,23 @@ mainwnd::rc_error_dialog (const std::string & message)
  *  Note that the split trigger variant of Stazed, where it doesn't just split
  *  the section in half, is not yet implemented (2016-08-05).
  *
- * \param do_export
- *      If true, then just write out the file and don't change the name of
- *      the current file based on the file-name the user selected.  The
- *      default value of this parameter is false.
+ * \param option
+ *      Indicates how to save or export the MIDI sequences.
+ *      The default value of this parameter is FILE_SAVE_AS_NORMAL.
+ *      The export options allow one to save the file as if the triggers were
+ *      employed, or with a lot of the Sequencer64-specific information
+ *      removed.
  */
 
 void
-mainwnd::file_save_as (bool do_export)
+mainwnd::file_save_as (SaveOption option)
 {
-    const char * const prompt = do_export ? "Export file as" : "Save file as" ;
+    const char * prompt = "Save File As" ;
+    if (option == FILE_SAVE_AS_EXPORT_SONG)
+        prompt = "Export Song As";
+    else if (option == FILE_SAVE_AS_EXPORT_MIDI)
+        prompt = "Export MIDI Only As";
+
     Gtk::FileChooserDialog dialog(prompt, Gtk::FILE_CHOOSER_ACTION_SAVE);
     dialog.set_transient_for(*this);
     dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
@@ -1786,11 +1997,38 @@ mainwnd::file_save_as (bool do_export)
                 if (response == Gtk::RESPONSE_NO)
                     return;
             }
-            if (do_export)
+            if (option == FILE_SAVE_AS_EXPORT_SONG)
             {
                 midifile f(fname, ppqn());
-                bool result = f.write_song(perf());     // f.write(perf());
+                bool result = f.write_song(perf());
                 if (! result)
+                {
+                    std::string errmsg = f.error_message();
+                    Gtk::MessageDialog errdialog
+                    (
+                        *this, errmsg, false, Gtk::MESSAGE_ERROR,
+                        Gtk::BUTTONS_OK, true
+                    );
+                    errdialog.run();
+                }
+            }
+            else if (option == FILE_SAVE_AS_EXPORT_MIDI)
+            {
+                rc().filename(fname);
+                update_window_title();
+                midifile f(rc().filename(), ppqn());
+                bool result = f.write(perf(), false);   /* no SeqSpec   */
+
+                /*
+                 * Cut'n'paste code follows :-(
+                 */
+
+                if (result)
+                {
+                    rc().add_recent_file(rc().filename());
+                    update_recent_files_menu();
+                }
+                else
                 {
                     std::string errmsg = f.error_message();
                     Gtk::MessageDialog errdialog
@@ -1853,14 +2091,9 @@ mainwnd::open_file (const std::string & fn)
     ppqn(f.ppqn());                     /* get and save the actual PPQN     */
     rc().last_used_dir(fn.substr(0, fn.rfind("/") + 1));
     rc().filename(fn);
+    rc().add_recent_file(fn);           /* from Oli Kester's Kepler34       */
+    update_recent_files_menu();
     update_window_title();
-
-    /*
-     * Also not sure if the reset() call is really necessary.
-     *
-     * reset();                                // m_main_wid->reset();
-     */
-
     m_entry_notes->set_text(perf().current_screen_set_notepad());
     m_adjust_bpm->set_value(perf().get_beats_per_minute());
 }
@@ -1922,7 +2155,12 @@ mainwnd::save_file ()
         rc().legacy_format(), usr().global_seq_feature()
     );
     result = f.write(perf());
-    if (! result)
+    if (result)
+    {
+        rc().add_recent_file(rc().filename());
+        update_recent_files_menu();
+    }
+    else
     {
         std::string errmsg = f.error_message();
         Gtk::MessageDialog errdialog
@@ -2281,21 +2519,20 @@ mainwnd::adj_callback_ss ()
 {
     if (multi_wid())
     {
-        int newset = int(m_adjust_ss->get_value());
-        if (newset <= spinner_max())
+        int currset = int(m_adjust_ss->get_value());
+        if (currset <= spinner_max())
         {
-            perf().set_screenset(newset);   /* set active screen-set    */
+            set_screenset(currset);             /* set active screen-set    */
+
 #if defined SEQ64_MULTI_MAINWID
             for (int block = 0; block < m_mainwid_count; ++block)
-                m_mainwid_blocks[block]->set_screenset(newset + block);
+                m_mainwid_blocks[block]->set_screenset(currset + block);
 #endif
         }
     }
     else
-    {
-        set_screenset(int(m_adjust_ss->get_value()), true);
-        m_entry_notes->set_text(perf().current_screen_set_notepad());
-    }
+        set_screenset(int(m_adjust_ss->get_value()));
+
     m_main_wid->grab_focus();               /* allows hot-keys to work  */
 }
 
@@ -2340,7 +2577,7 @@ mainwnd::adj_callback_wid (int widblock)
             std::string label = "   Set ";
             label += std::to_string(newset);
             if (widblock == 0)
-                perf().set_screenset(newset);                   /* first    */
+                perf().set_screenset(newset);
 
             m_mainwid_blocks[widblock]->log_screenset(newset);  /* second   */
             if (newset == perf().screenset())
@@ -2370,8 +2607,11 @@ mainwnd::edit_callback_notepad ()
     perf().set_screen_set_notepad(text);
 }
 
+#ifdef SEQ64_PAUSE_SUPPORT
+
 /**
  *  Changes the image used for the pause/play button.  Is this a memory leak?
+ *  Some users report segfaults (all of a sudden) with this setting!
  *
  * \param isrunning
  *      If true, set the image to the "Pause" icon, since playback is running.
@@ -2381,19 +2621,21 @@ mainwnd::edit_callback_notepad ()
 void
 mainwnd::set_play_image (bool isrunning)
 {
-    delete m_image_play;
     if (isrunning)
     {
-        m_image_play = manage(new PIXBUF_IMAGE(pause_xpm));
-        add_tooltip(m_button_play, "Pause playback at the current location.");
+        add_tooltip(m_button_play, "Pause playback at current location.");
+        m_image_play = manage(new(std::nothrow) PIXBUF_IMAGE(pause_xpm));
     }
     else
     {
-        m_image_play = manage(new PIXBUF_IMAGE(play2_xpm));
-        add_tooltip(m_button_play, "Resume playback from the current location.");
+        add_tooltip(m_button_play, "Resume playback from current location.");
+        m_image_play = manage(new(std::nothrow) PIXBUF_IMAGE(play2_xpm));
     }
-    m_button_play->set_image(*m_image_play);
+    if (not_nullptr(m_image_play))
+        m_button_play->set_image(*m_image_play);
 }
+
+#endif
 
 /**
  *  Changes the image used for the song/live mode button
@@ -2406,7 +2648,6 @@ mainwnd::set_play_image (bool isrunning)
 void
 mainwnd::set_songlive_image (bool issong)
 {
-    delete m_image_songlive;
     if (issong)
     {
         m_image_songlive = manage(new PIXBUF_IMAGE(song_mode_xpm));
@@ -2637,12 +2878,18 @@ mainwnd::update_bpm ()
 
 /**
  *  Logs the current tempo/tick value as a Set Tempo event.
+ *
+ * \todo
+ *      Upgrade this so that a Ctrl-click calls toggle_tempo_record, so that
+ *      we can eliminate a tempo button; there are too many buttons.
  */
 
 void
 mainwnd::tempo_log ()
 {
     (void) perf().log_current_tempo();  // TODO:  check the return value
+
+printf("tempo logged\n");
 }
 
 /**
@@ -2696,9 +2943,8 @@ mainwnd::debug_text (const std::string & tag, int value)
 }
 
 /**
- *  This callback function handles a delete event from ...?
- *
- *  Any changed data is saved.  If the pattern is playing, then it is
+ *  This callback function handles the user requesting that the main window be
+ *  closed.  Any changed data is saved.  If the pattern is playing, then it is
  *  stopped.  We now use perform::is_pattern_playing().
  */
 
@@ -2710,30 +2956,6 @@ mainwnd::on_delete_event (GdkEventAny * /*ev*/)
         stop_playing();
 
     return ! result;
-}
-
-/**
- *  Handles a key release event.  Is this worth turning into a switch
- *  statement?  Or offloading to a perform member function?  The latter.
- *  Also, we now effectively press the CAPS LOCK key for the user if in
- *  group-learn mode.  The function that does this is keystroke::shift_lock().
- *
- * \todo
- *      Test this functionality in old and new application.
- *
- * \return
- *      Always returns false.  This matches seq24 behavior.
- */
-
-bool
-mainwnd::on_key_release_event (GdkEventKey * ev)
-{
-    keystroke k(ev->keyval, SEQ64_KEYSTROKE_RELEASE);
-    if (perf().is_group_learning())
-        k.shift_lock();
-
-    (void) perf().mainwnd_key_event(k);     // already called in key-press!!!
-    return false;
 }
 
 /**
@@ -2787,16 +3009,12 @@ mainwnd::on_key_press_event (GdkEventKey * ev)
             if (k.key() == PREFKEY(screenset_dn) || k.key() == SEQ64_Page_Down)
             {
                 int newss = perf().decrement_screenset();
-                set_screenset(newss);
-                m_adjust_ss->set_value(newss);
-                m_entry_notes->set_text(perf().current_screen_set_notepad());
+                set_screenset(newss);                     /* does it all now */
             }
             else if (k.key() == PREFKEY(screenset_up) || k.key() == SEQ64_Page_Up)
             {
                 int newss = perf().increment_screenset();
-                set_screenset(newss);
-                m_adjust_ss->set_value(newss);
-                m_entry_notes->set_text(perf().current_screen_set_notepad());
+                set_screenset(newss);                     /* does it all now */
             }
 #ifdef SEQ64_MAINWND_TAP_BUTTON
             else if (k.key() == PREFKEY(tap_bpm))
@@ -2821,6 +3039,21 @@ mainwnd::on_key_press_event (GdkEventKey * ev)
             {
                 toggle_menu_mode();
             }
+#endif
+#ifdef SEQ64_SONG_RECORDING
+            else if (k.key() == PREFKEY(song_record))
+            {
+                toggle_song_record();
+            }
+            /*
+             * Handle this like the queue key, in
+             * perform::mainwnd_key_event().
+             *
+            else if (k.key() == PREFKEY(oneshot_queue))
+            {
+                // TODO              toggle_menu_mode();
+            }
+             */
 #endif
         }
 
@@ -3010,6 +3243,30 @@ mainwnd::on_key_press_event (GdkEventKey * ev)
     return result;
 }
 
+/**
+ *  Handles a key release event.  Is this worth turning into a switch
+ *  statement?  Or offloading to a perform member function?  The latter.
+ *  Also, we now effectively press the CAPS LOCK key for the user if in
+ *  group-learn mode.  The function that does this is keystroke::shift_lock().
+ *
+ * \todo
+ *      Test this functionality in old and new application.
+ *
+ * \return
+ *      Always returns false.  This matches seq24 behavior.
+ */
+
+bool
+mainwnd::on_key_release_event (GdkEventKey * ev)
+{
+    keystroke k(ev->keyval, SEQ64_KEYSTROKE_RELEASE);
+    if (perf().is_group_learning())
+        k.shift_lock();
+
+    (void) perf().mainwnd_key_event(k);     // already called in key-press!!!
+    return false;
+}
+
 #if defined SEQ64_JE_PATTERN_PANEL_SCROLLBARS
 
 /**
@@ -3090,7 +3347,7 @@ mainwnd::on_scrollbar_resize ()
 void
 mainwnd::update_window_title ()
 {
-    std::string title = (SEQ64_PACKAGE) + std::string(" - [");
+    std::string title = SEQ64_APP_NAME + std::string(" - [");
     std::string itemname = "unnamed";
     int ppqn = choose_ppqn(m_ppqn);
     char temp[16];
@@ -3102,6 +3359,81 @@ mainwnd::update_window_title ()
     }
     title += itemname + std::string("]") + std::string(temp);
     set_title(title.c_str());
+}
+
+/**
+ *  Sets up the recent MIDI files menu.  If the menu already exists, delete it.
+ *  Then recreate the new menu named "&Recent MIDI files...".  Add all of the
+ *  entries present in the rc().recent_files_count() list.  Hook each entry up
+ *  to the open_file() function with each file-name as a parameter.  If there
+ *  are none, just add a disabled "<none>" entry.
+ */
+
+#define SET_FILE    mem_fun(*this, &mainwnd::load_recent_file)
+
+void
+mainwnd::update_recent_files_menu ()
+{
+    if (not_nullptr(m_menu_recent))
+    {
+        /*
+         * Causes a crash:
+         *
+         *      m_menu_file->items().remove(*m_menu_recent);    // crash!
+         *      delete m_menu_recent;
+         */
+
+        m_menu_recent->items().clear();
+    }
+    else
+    {
+        m_menu_recent = manage(new Gtk::Menu());
+        m_menu_file->items().push_back
+        (
+            MenuElem("_Recent MIDI files...", *m_menu_recent)
+        );
+    }
+
+    if (rc().recent_file_count() > 0)
+    {
+        for (int i = 0; i < rc().recent_file_count(); ++i)
+        {
+            std::string filepath = rc().recent_file(i);     // shortened name
+            m_menu_recent->items().push_back
+            (
+                MenuElem(filepath, sigc::bind(SET_FILE, i))
+            );
+        }
+    }
+    else
+    {
+        m_menu_recent->items().push_back
+        (
+            MenuElem("<none>", sigc::bind(SET_FILE, (-1)))
+        );
+    }
+}
+
+/**
+ *  Looks up the desired recent MIDI file and opens it.  This function passes
+ *  false as the shorten parameter of rc_settings::recent_file().
+ *
+ * \param index
+ *      Indicates which file in the list to open, ranging from 0 to the number
+ *      of recent files minus 1.  If set to -1, then nothing is done.
+ */
+
+void
+mainwnd::load_recent_file (int index)
+{
+    if (index >= 0 and index < rc().recent_file_count())
+    {
+        if (is_save())
+        {
+            std::string filepath = rc().recent_file(index, false);
+            open_file(filepath);
+        }
+    }
 }
 
 /**
@@ -3221,6 +3553,9 @@ mainwnd::populate_menu_file ()
             mem_fun(*this, &mainwnd::file_open)
         )
     );
+    m_menu_file->items().push_back(SeparatorElem());
+    update_recent_files_menu();                     /* copped from Kepler34 */
+    m_menu_file->items().push_back(SeparatorElem());
     m_menu_file->items().push_back
     (
         MenuElem
@@ -3234,7 +3569,10 @@ mainwnd::populate_menu_file ()
         MenuElem
         (
             "Save _as...", Gtk::AccelKey("<control><shift>S"),
-            sigc::bind(mem_fun(*this, &mainwnd::file_save_as), false)
+            sigc::bind
+            (
+                mem_fun(*this, &mainwnd::file_save_as), FILE_SAVE_AS_NORMAL
+            )
         )
     );
     m_menu_file->items().push_back(SeparatorElem());
@@ -3248,16 +3586,36 @@ mainwnd::populate_menu_file ()
     );
 
     /*
-     * Export means to write out the song as a standard MIDI file based on the
-     * triggers shown in the performance window.
+     * Export Song means to write out the song performance as a standard MIDI
+     * file based on the triggers shown in the performance window.
      */
 
     m_menu_file->items().push_back
     (
         MenuElem
         (
-            "E_xport song as MIDI...", Gtk::AccelKey("<control><shift>I"),
-            sigc::bind(mem_fun(*this, &mainwnd::file_save_as), true)
+            "Export _Song as MIDI...", Gtk::AccelKey("<control><shift>I"),
+            sigc::bind
+            (
+                mem_fun(*this, &mainwnd::file_save_as), FILE_SAVE_AS_EXPORT_SONG
+            )
+        )
+    );
+
+    /*
+     * Export MIDI Only means to write out the MIDI data, without including
+     * any Sequencer64-specific (SeqSpec) constructs.
+     */
+
+    m_menu_file->items().push_back
+    (
+        MenuElem
+        (
+            "Export _MIDI Only...", Gtk::AccelKey("<control><shift>O"),
+            sigc::bind
+            (
+                mem_fun(*this, &mainwnd::file_save_as), FILE_SAVE_AS_EXPORT_MIDI
+            )
         )
     );
     m_menu_file->items().push_back(SeparatorElem());
@@ -3423,8 +3781,8 @@ mainwnd::sequence_key (int seq)
  *  Sets the text on the new status label.
  *
  * \param text
- *      Provides the short (6 characters in the default state) string to 
- *      set the label.
+ *      Provides the short (6 characters in the default state) string to set
+ *      the label.
  */
 
 void

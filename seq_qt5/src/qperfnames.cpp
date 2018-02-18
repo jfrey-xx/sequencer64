@@ -105,7 +105,8 @@ void qperfnames::paintEvent(QPaintEvent *)
             if (mPerf->is_active(seqId))
             {
                 //get seq's assigned colour and beautify
-                QColor colourSpec = QColor(colourMap.value(mPerf->getSequenceColour(seqId)));
+                QColor colourSpec =
+                QColor(colourMap.value(mPerf->get_sequence_color(seqId)));
                 QColor backColour = QColor(colourSpec);
                 if (backColour.value() != 255) //dont do this if we're white
                     backColour.setHsv(colourSpec.hue(),
@@ -126,14 +127,16 @@ void qperfnames::paintEvent(QPaintEvent *)
 
             if (mPerf->is_active(seqId))
             {
-
                 m_sequence_active[seqId] = true;
 
                 //draw seq info on label
                 char name[50];
-                snprintf(name, sizeof(name), "%-14.14s                        %2d",
-                         mPerf->get_sequence(seqId)->name(),
-                         mPerf->get_sequence(seqId)->get_midi_channel() + 1);
+                snprintf
+                (
+                    name, sizeof name, "%-14.14s                        %2d",
+                    mPerf->get_sequence(seqId)->name(),
+                    mPerf->get_sequence(seqId)->get_midi_channel() + 1
+                );
 
                 //seq name
                 mPen->setColor(Qt::black);
@@ -143,12 +146,15 @@ void qperfnames::paintEvent(QPaintEvent *)
                                    name);
 
                 char str[20];
-                snprintf(str, sizeof(str),
-                         "%d-%d %ld/%ld",
-                         mPerf->get_sequence(seqId)->get_midi_bus(),
-                         mPerf->get_sequence(seqId)->get_midi_channel() + 1,
-                         mPerf->get_sequence(seqId)->get_beats_per_bar(),
-                         mPerf->get_sequence(seqId)->get_beat_width());
+                snprintf
+                (
+                    str, sizeof(str),
+                     "%d-%d %d/%d",
+                     mPerf->get_sequence(seqId)->get_midi_bus(),
+                     mPerf->get_sequence(seqId)->get_midi_channel() + 1,
+                     mPerf->get_sequence(seqId)->get_beats_per_bar(),
+                     mPerf->get_sequence(seqId)->get_beat_width()
+                );
 
                 //seq info
                 mPainter->drawText(18,
@@ -208,7 +214,9 @@ void qperfnames::mouseMoveEvent(QMouseEvent *event)
 
 qperfnames::~qperfnames()
 {
-    delete mPen, mPainter, mBrush;
+    delete mPen;
+    delete mPainter;
+    delete mBrush;
 }
 
 }           // namespace seq64

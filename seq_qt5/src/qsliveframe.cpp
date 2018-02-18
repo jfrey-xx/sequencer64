@@ -103,7 +103,8 @@ void qsliveframe::drawSequence(int a_seq)
             sequence *seq = mPerf->get_sequence(a_seq);
 
             //get seq's assigned colour
-            QColor backColour = QColor(colourMap.value(mPerf->getSequenceColour(a_seq)));
+            QColor backColour =
+            QColor(colourMap.value(mPerf->get_sequence_color(a_seq)));
 
             mPen->setColor(Qt::black);
             mPen->setStyle(Qt::SolidLine);

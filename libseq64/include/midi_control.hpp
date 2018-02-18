@@ -28,7 +28,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-11-21
- * \updates       2017-05-16
+ * \updates       2018-02-01
  * \license       GNU GPLv2 or above
  *
  *  This module defines a number of constants relating to control of the 32
@@ -90,14 +90,14 @@ const int c_midi_control_mod_glearn   = c_midi_track_ctrl + 8;
 const int c_midi_control_play_ss      = c_midi_track_ctrl + 9;
 const int c_midi_controls             = c_midi_track_ctrl + 10; /* old = 74 */
 const int c_midi_control_playback     = c_midi_track_ctrl + 10;
-const int c_midi_control_record       = c_midi_track_ctrl + 11; /* arm for  */
+const int c_midi_control_song_record  = c_midi_track_ctrl + 11; /* arm for  */
 const int c_midi_control_solo         = c_midi_track_ctrl + 12;
 const int c_midi_control_thru         = c_midi_track_ctrl + 13;
 const int c_midi_control_bpm_page_up  = c_midi_track_ctrl + 14;
 const int c_midi_control_bpm_page_dn  = c_midi_track_ctrl + 15;
 const int c_midi_control_ss_set       = c_midi_track_ctrl + 16; /* pull #85 */
-const int c_midi_control_17           = c_midi_track_ctrl + 17;
-const int c_midi_control_18           = c_midi_track_ctrl + 18;
+const int c_midi_control_record       = c_midi_track_ctrl + 17;
+const int c_midi_control_quan_record  = c_midi_track_ctrl + 18;
 const int c_midi_control_19           = c_midi_track_ctrl + 19;
 const int c_midi_controls_extended    = c_midi_track_ctrl + 20; /* new = 84 */
 
@@ -126,11 +126,11 @@ extern int g_midi_control_limit;
     n [0 0   0   0   0   0] [0 0   0   0   0   0] [0 0   0   0   0   0]
 \endverbatim
  *
- *  where n ranges from 0 to 73 or 83.  Lines 0 to 31 provide controller values for
- *  the "pattern group", one line for each of the 32 pattern slots.  Lines 32
- *  to 63 provide controller values for the "mute in group", one line for each
- *  of the 32 pattern slots.  The rest of the lines provide entries for
- *  control of: BPM up, BPM down, Screen-set up, Screen-set down, Mod
+ *  where n ranges from 0 to 73 or 83.  Lines 0 to 31 provide controller
+ *  values for the "pattern group", one line for each of the 32 pattern slots.
+ *  Lines 32 to 63 provide controller values for the "mute in group", one line
+ *  for each of the 32 pattern slots.  The rest of the lines provide entries
+ *  for control of: BPM up, BPM down, Screen-set up, Screen-set down, Mod
  *  Replaces, Mod Snapshot, Mod Queue, Mod gmute (group mute), Mod glearn
  *  (group learn), and Screen-set Play.  Additional controls are currently in
  *  the works.

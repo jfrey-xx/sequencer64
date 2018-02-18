@@ -28,7 +28,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-09-22
- * \updates       2017-08-09
+ * \updates       2017-11-23
  * \license       GNU GPLv2 or above
  *
  *  This collection of variables describes the options of the application,
@@ -41,6 +41,7 @@
  */
 
 #include <string>
+#include <vector>
 
 #include "seq64_features.h"             /* SEQ64_USE_ZOOM_POWER_OF_2    */
 
@@ -51,7 +52,7 @@
 namespace seq64
 {
 
-class perform;                      /* forward declaration                  */
+class perform;                          /* forward declaration          */
 
 /**
  *  Provides mutually-exclusive codes for the mouse-handling used by the
@@ -114,6 +115,7 @@ private:
      * sequencer64.rc file.
      */
 
+    bool m_verbose_option;          /**< [auto-option-save] setting.        */
     bool m_auto_option_save;        /**< [auto-option-save] setting.        */
     bool m_legacy_format;           /**< Write files in legacy format.      */
     bool m_lash_support;            /**< Enable LASH, if compiled in.       */
@@ -213,6 +215,15 @@ private:
 
     int m_tempo_track_number;
 
+    /**
+     *  Holds a few MIDI file-names most recently used.  Although this is a
+     *  vector, we do not let it grow past SEQ64_RECENT_FILES_MAX.
+     *
+     *  New feature from Oli Kester's kepler34 project.
+     */
+
+    std::vector<std::string> m_recent_files;
+
 public:
 
     rc_settings ();
@@ -222,6 +233,15 @@ public:
     std::string config_filespec () const;
     std::string user_filespec () const;
     void set_defaults ();
+
+    /**
+     * \getter m_verbose_option
+     */
+
+    bool verbose_option () const
+    {
+        return m_verbose_option;
+    }
 
     /**
      * \getter m_auto_option_save
@@ -540,7 +560,27 @@ public:
         return m_tempo_track_number;
     }
 
+    std::string recent_file (int index, bool shorten = true) const;
+
+    /**
+     * \getter m_recent_files.size()
+     */
+
+    int recent_file_count () const
+    {
+        return int(m_recent_files.size());
+    }
+
 protected:
+
+    /**
+     * \setter m_verbose_option
+     */
+
+    void verbose_option (bool flag)
+    {
+        m_verbose_option = flag;
+    }
 
     /**
      * \setter m_auto_option_save
@@ -696,6 +736,7 @@ protected:
      */
 
     void tempo_track_number (int track);
+    void add_recent_file (const std::string & filename);
     void device_ignore_num (int value);
     bool interaction_method (interaction_method_t value);
     bool mute_group_saving (mute_group_handling_t mgh);

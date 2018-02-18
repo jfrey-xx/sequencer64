@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-05-21
+ * \updates       2018-01-28
  * \license       GNU GPLv2 or above
  *
  *  When the Song/Performance editor has focus, Sequencer64 is automatically
@@ -49,15 +49,15 @@
 #include <gtkmm/image.h>
 #include <sigc++/bind.h>
 
+#include "fruityperfroll_input.hpp"     /* FruityPerfInput, Seq24PerfInput  */
 #include "gdk_basic_keys.h"
 #include "gtk_helpers.h"
-#include "gui_key_tests.hpp"            /* seq64::is_ctrl_key()         */
+#include "gui_key_tests.hpp"            /* seq64::is_ctrl_key()             */
 #include "keystroke.hpp"
 #include "perfedit.hpp"
 #include "perfnames.hpp"
-#include "perfroll.hpp"
 #include "perftime.hpp"
-#include "settings.hpp"                 /* seq64::choose_ppqn()         */
+#include "settings.hpp"                 /* seq64::choose_ppqn()             */
 
 #include "pixmaps/pause.xpm"
 #include "pixmaps/play2.xpm"
@@ -153,7 +153,13 @@ perfedit::perfedit
     m_perfnames         (manage(new perfnames(perf(), *this, *m_vadjust))),
     m_perfroll
     (
-        manage(new perfroll(perf(), *this, *m_hadjust, *m_vadjust, ppqn))
+        manage                              /* ya gotta love C code :-D */
+        (
+            (rc().interaction_method() == e_seq24_interaction) ?
+                new Seq24PerfInput(perf(), *this, *m_hadjust, *m_vadjust, ppqn)
+              :
+                new FruityPerfInput(perf(), *this, *m_hadjust, *m_vadjust, ppqn)
+        )
     ),
     m_perftime          (manage(new perftime(perf(), *this, *m_hadjust))),
     m_menu_snap         (manage(new Gtk::Menu())),
@@ -182,7 +188,6 @@ perfedit::perfedit
     m_entry_bw          (manage(new Gtk::Entry())),
     m_hbox              (manage(new Gtk::HBox(false, 2))),
     m_hlbox             (manage(new Gtk::HBox(false, 2))),
-    m_tooltips          (manage(new Gtk::Tooltips())),  // valgrind complains!
     m_menu_bpm          (manage(new Gtk::Menu())),
     m_menu_bw           (manage(new Gtk::Menu())),
     m_snap              (0),
@@ -844,7 +849,6 @@ perfedit::timeout ()
 void
 perfedit::set_image (bool isrunning)
 {
-    delete m_image_play;
     if (isrunning)
     {
         m_image_play = manage(new PIXBUF_IMAGE(pause_xpm));
@@ -1059,7 +1063,7 @@ perfedit::on_key_release_event (GdkEventKey * ev)
             return true;
         }
     }
-    return Gtk::Window::on_key_release_event(ev);   // necessary?
+    return Gtk::Window::on_key_release_event(ev);
 }
 
 }           // namespace seq64

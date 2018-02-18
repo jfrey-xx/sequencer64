@@ -28,7 +28,7 @@
  * \library       sequencer64 application
  * \author        Chris Ahlstrom
  * \date          2016-08-19
- * \updates       2017-09-02
+ * \updates       2017-11-24
  * \license       GNU GPLv2 or above
  *
  *    Some options (the "USE_xxx" options) specify experimental and
@@ -69,14 +69,56 @@
 #include "seq64-config.h"
 
 /**
- * Odds and ends that we missed.  This value allows non-notes to be included
- * in a selection for movement or other adjustment.
+ *  Kepler34 has a drum edit mode that we are still exploring and adding,
+ *  marked by the following macro to keep it out of the way until the feature
+ *  is ready for prime time.  Currently builds but is incomplete and not
+ *  tested.
+ */
+
+#undef USE_SEQUENCE_EDIT_MODE
+
+/**
+ *  Kepler34 has a feature for coloring sequence patterns.  Not supportable in
+ *  our current Gtkmm implementation, but we're making room for it now.
+ *
+ *  Compiles, but don't enable until we decide it's worth storing an extra
+ *  1024 bytes in the MIDI file.
+ */
+
+#undef  USE_SEQUENCE_COLOR
+
+/**
+ *  Kepler34 has a song-recording mode that we are still exploring and adding,
+ *  marked by the following macro to keep it out of the way until the feature
+ *  is ready for prime time.  This feature has been requested by some users of
+ *  Sequencer64.  Currently builds but is not fully tested.
+ */
+
+#define SEQ64_SONG_RECORDING
+
+/**
+ *  Kepler34 allows the user to select (and move) more than one sequence in
+ *  the Song Editor.  Currently builds but is incomplete and not tested.
+ *  Currently broken.  Still refactoring!
+ *
+ *  This is our version, which currently supports only the "Shift-select"
+ *  option, where the user holds the shift key while clicking triggers to
+ *  select more than one.  It now seems a bit off-base, so we're disabling
+ *  this feature for now.  A trigger selection can only be completely
+ *  specified by it sequence number and the start tick of the trigger.
+ */
+
+#undef  SEQ64_SONG_BOX_SELECT               /* not ready for prime time     */
+
+/**
+ *  Odds and ends that we missed.  This value allows non-notes to be included
+ *  in a selection for movement or other adjustment.
  */
 
 #define SEQ64_NON_NOTE_EVENT_ADJUSTMENT     /* see sequence.cpp             */
 
 /**
- * Currently, many macros are undefined as tentative or experimental.
+ *  Currently, many macros are undefined as tentative or experimental.
  */
 
 /**
@@ -162,10 +204,10 @@
  *
  *  Unlike in Seq32, however, this is currently a member option in the sequence
  *  class.  We will want to make it a run-time option and then remove this
- *  macro here.
+ *  macro here.  Done.  See the rc_settings::filter_by_channel() option.
+ *
+ * #define  USE_STAZED_MIDI_DUMP
  */
-
-#undef  USE_STAZED_MIDI_DUMP
 
 /**
  *  Adds the ability to select odd/even notes in seqedit.

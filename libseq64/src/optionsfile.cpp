@@ -26,7 +26,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-10
+ * \updates       2018-01-31
  * \license       GNU GPLv2 or above
  *
  *  The <code> ~/.seq24rc </code> or <code> ~/.config/sequencer64/sequencer64.rc
@@ -343,7 +343,7 @@ optionsfile::parse (perform & p)
     }
     if (ok)
     {
-        /*
+        /**
          * One thing about MIDI clock values.  If a device (e.g. my Korg
          * nanoKEY2) is present in a system when Sequencer64 is exited, it
          * will be saved in the [midi-clock] list.  When unplugged, it will be
@@ -550,6 +550,12 @@ optionsfile::parse (perform & p)
             next_data_line(file);
             sscanf(m_line, "%u", &ktx.kpt_toggle_mutes);
             next_data_line(file);
+#ifdef SEQ64_SONG_RECORDING
+            sscanf(m_line, "%u", &ktx.kpt_song_record);
+            next_data_line(file);
+            sscanf(m_line, "%u", &ktx.kpt_oneshot_queue);
+            next_data_line(file);
+#endif
         }
         else
         {
@@ -613,7 +619,12 @@ optionsfile::parse (perform & p)
                     ++b;
                 }
                 else if (count == 1)
-                    rc().filter_by_channel(bool(bus));
+                {
+                    bool flag = bool(bus);
+                    rc().filter_by_channel(flag);
+                    p.filter_by_channel(flag);      /* important! */
+                    infoprintf("filter-by-channel %s\n", flag ? "on" : "off");
+                }
             }
             if (b < buses)
                 return error_message("midi-input", "too few buses");
@@ -622,7 +633,16 @@ optionsfile::parse (perform & p)
     else
         return error_message("midi-input");
 
-    if (rc().legacy_format())
+#ifdef USE_THIS_CODE
+
+    /*
+     * This is not right; it is already handled above, irregardless of legacy
+     * status, and the next section is [manual-alsa-ports], which is handled
+     * further on.  The handling here is out of order, but configfile ::
+     * line_after() starts from the beginning every time.
+     */
+
+    if (! rc().legacy_format())
     {
         if (next_data_line(file))                       /* new 2016-08-20 */
         {
@@ -630,6 +650,9 @@ optionsfile::parse (perform & p)
             rc().filter_by_channel(bool(flag));
         }
     }
+
+#endif  // USE_THIS_CODE
+
     if (line_after(file, "[midi-clock-mod-ticks]"))
     {
         long ticks = 64;
@@ -664,6 +687,22 @@ optionsfile::parse (perform & p)
     {
         if (strlen(m_line) > 0)
             rc().last_used_dir(m_line); // FIXME: check for valid path
+    }
+
+    if (line_after(file, "[recent-files]"))
+    {
+        int count;
+        sscanf(m_line, "%d", &count);
+        for (int i = 0; i < count; ++i)
+        {
+            if (next_data_line(file))
+            {
+                if (strlen(m_line) > 0)
+                    rc().add_recent_file(std::string(m_line));
+            }
+            else
+                break;
+        }
     }
 
     long method = 0;
@@ -860,7 +899,7 @@ optionsfile::write (const perform & p)
     else
     {
         file <<
-            "# Sequencer64 0.93.1 (and above) rc configuration file\n"
+            "# Sequencer64 0.94.0 (and above) rc configuration file\n"
             "#\n"
             "# This file holds the main configuration options for Sequencer64.\n"
             "# It follows the format of the legacy seq24 'rc' configuration\n"
@@ -891,6 +930,17 @@ optionsfile::write (const perform & p)
         "# Example:  For a Note On for note 0, 0 and 127 indicate that any\n"
         "# Note On velocity will cause the MIDI control to take effect.\n"
         "\n"
+        "#     ------------------ on/off (indicate is the section is enabled)\n"
+        "#    | ----------------- inverse\n"
+        "#    | |  -------------- MIDI status (event) byte (e.g. note on)\n"
+        "#    | | |  ------------ data 1 (e.g. note number)\n"
+        "#    | | | |  ---------- data 2 min\n"
+        "#    | | | | |  -------- data 2 max\n"
+        "#    | | | | | |\n"
+        "#    v v v v v v\n"
+        "#   [0 0 0 0 0 0]   [0 0 0 0 0 0]   [0 0 0 0 0 0]\n"
+        "#    Toggle          On              Off\n"
+        "\n"
         <<  g_midi_control_limit << "      # MIDI controls count (74 or 84)\n"
         "\n"
         << "# Pattern-group section:\n"
@@ -917,11 +967,14 @@ optionsfile::write (const perform & p)
         switch (mcontrol)
         {
         case c_max_groups:                  // 32
-            file << "# Mute-in group section:\n";
+            file << "\n# Mute-in group section:\n";
             break;
 
         case c_midi_control_bpm_up:         // 64
-            file << "# bpm up:\n";
+            file
+                << "\n# Automation group\n\n"
+                   "# bpm up:\n"
+                ;
             break;
 
         case c_midi_control_bpm_dn:         // 65
@@ -961,11 +1014,12 @@ optionsfile::write (const perform & p)
             break;
 
         case c_midi_control_playback:       // 74 (new values!)
-            file << "# Extended MIDI controls:\n";
-            file << "# start playback (pause, start, stop):\n";
+            file << "\n# Extended MIDI controls:\n\n"
+                    "# start playback (pause, start, stop):\n"
+                    ;
             break;
 
-        case c_midi_control_record:         // 75
+        case c_midi_control_song_record:    // 75
             file << "# performance record:\n";
             break;
 
@@ -989,8 +1043,14 @@ optionsfile::write (const perform & p)
             file << "# screen set by number:\n";
             break;
 
-        case c_midi_control_17:             // 81
-        case c_midi_control_18:             // 82
+        case c_midi_control_record:         // 81
+            file << "# MIDI RECORD (toggle, on, off):\n";
+            break;
+
+        case c_midi_control_quan_record:    // 82
+            file << "# MIDI Quantized RECORD (toggle, on, off):\n";
+            break;
+
         case c_midi_control_19:             // 83
             file << "# reserved for expansion:\n";
             break;
@@ -1089,12 +1149,12 @@ optionsfile::write (const perform & p)
         int v = int(mgh);
         file
             << "\n"
-            << "# Handling of mute-groups.  If set to 0, a legacy value, then\n"
-            << "# any mute-groups read from the MIDI file (whether modified or\n"
-            << "# not) are saved to the 'rc' file as well.  If set to 1, the\n"
-            << "# 'rc' mute-groups are overwritten only if they were not read\n"
-            << "# from the MIDI file.\n"
-            << "\n"
+               "# Handling of mute-groups.  If set to 0, a legacy value, then\n"
+               "# any mute-groups read from the MIDI file (whether modified or\n"
+               "# not) are saved to the 'rc' file as well.  If set to 1, the\n"
+               "# 'rc' mute-groups are overwritten only if they were not read\n"
+               "# from the MIDI file.\n"
+               "\n"
             << v
             ;
         if (mgh == e_mute_group_stomp)
@@ -1111,15 +1171,15 @@ optionsfile::write (const perform & p)
 
     int buses = ucperf.master_bus().get_num_out_buses();
     file
-        << "\n[midi-clock]\n\n"
-        << "# The first line indicates the number of MIDI busses defined.\n"
         << "\n"
-        << "# Each buss line contains the buss (re 0) and the clock status of\n"
-        << "# that buss.  0 = MIDI Clock is off; 1 = MIDI Clock on, and Song\n"
-        << "# Position and MIDI Continue will be sent, if needed; and 2 = MIDI\n"
-        << "# Clock Modulo, where MIDI clocking will not begin until the song\n"
-        << "# position reaches the start modulo value [midi-clock-mod-ticks].\n"
-        << "\n"
+           "[midi-clock]\n\n"
+           "# The first line indicates the number of MIDI busses defined.\n"
+           "# Each buss line contains the buss (re 0) and the clock status of\n"
+           "# that buss.  0 = MIDI Clock is off; 1 = MIDI Clock on, and Song\n"
+           "# Position and MIDI Continue will be sent, if needed; and 2 = MIDI\n"
+           "# Clock Modulo, where MIDI clocking will not begin until the song\n"
+           "# position reaches the start modulo value [midi-clock-mod-ticks].\n"
+           "\n"
         ;
 
     file << buses << "    # number of MIDI clocks/busses\n\n";
@@ -1161,6 +1221,7 @@ optionsfile::write (const perform & p)
            "# (pattern 0).  But one can move this track elsewhere to accomodate\n"
            "# one's existing body of tunes.  If affects where tempo events are\n"
            "# recorded.  The default value is 0, the maximum is 1023.\n"
+           "# A pattern must exist at this number for it to work.\n"
            "\n"
         << rc().tempo_track_number() << "    # tempo_track_number\n"
         ;
@@ -1212,10 +1273,10 @@ optionsfile::write (const perform & p)
     file
         << "\n[manual-alsa-ports]\n\n"
            "# Set to 1 to have sequencer64 create its own ALSA ports and not\n"
-           "# connect to other clients.  Use 1 to expose all the MIDI ports to\n"
+           "# connect to other clients.  Use 1 to expose all 16 MIDI ports to\n"
            "# JACK (e.g. via a2jmidid).  Use 0 to access the ALSA MIDI ports\n"
-           "# already running on one's computer, or to use the MIDI Through\n"
-           "# (capture) output alone in JACK.\n"
+           "# already running on one's computer, or to use the autoconnect\n"
+           "# feature (Sequencer64 connects to existing JACK ports on startup.\n"
            "\n"
         << (rc().manual_alsa_ports() ? "1" : "0")
         << "   # flag for manual ALSA ports\n"
@@ -1227,10 +1288,10 @@ optionsfile::write (const perform & p)
 
     file
         << "\n[reveal-alsa-ports]\n\n"
-        << "# Set to 1 to have sequencer64 ignore any system port names\n"
-        << "# declared in the 'user' configuration file.  Use this option if\n"
-        << "# you want to be able to see the port names as detected by ALSA.\n"
-        << "\n"
+           "# Set to 1 to have sequencer64 ignore any system port names\n"
+           "# declared in the 'user' configuration file.  Use this option if\n"
+           "# you want to be able to see the port names as detected by ALSA.\n"
+           "\n"
         << (rc().reveal_alsa_ports() ? "1" : "0")
         << "   # flag for reveal ALSA ports\n"
         ;
@@ -1463,6 +1524,14 @@ optionsfile::write (const perform & p)
             << ktx.kpt_toggle_mutes << "    # "
             << ucperf.key_name(ktx.kpt_toggle_mutes)
             << " handles the toggling-all-pattern-mutes function\n"
+#ifdef SEQ64_SONG_RECORDING
+            << ktx.kpt_song_record << "    # "
+            << ucperf.key_name(ktx.kpt_song_record)
+            << " toggles the song-record function\n"
+            << ktx.kpt_oneshot_queue << "    # "
+            << ucperf.key_name(ktx.kpt_oneshot_queue)
+            << " toggles the one-shot queue function\n"
+#endif
             ;
     }
 
@@ -1531,8 +1600,27 @@ optionsfile::write (const perform & p)
     file << "\n"
         "[last-used-dir]\n\n"
         "# Last-used and currently-active directory:\n\n"
-        << rc().last_used_dir() << "\n\n"
+        << rc().last_used_dir() << "\n"
         ;
+
+    /*
+     *  New feature from Kepler34.
+     */
+
+    int count = rc().recent_file_count();
+    file << "\n"
+        "[recent-files]\n\n"
+        "# Holds a list of the last few recently-loaded MIDI files.\n\n"
+        << count << "\n\n"
+        ;
+
+    if (count > 0)
+    {
+        for (int i = 0; i < count; ++i)
+            file << rc().recent_file(i, false) << "\n";
+
+        file << "\n";
+    }
 
     file
         << "# End of " << m_name << "\n#\n"

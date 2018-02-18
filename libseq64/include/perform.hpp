@@ -28,7 +28,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-09-11
+ * \updates       2018-02-18
  * \license       GNU GPLv2 or above
  *
  *  This class still has way too many members, even with the JACK and
@@ -53,9 +53,6 @@
  *  handle_midi_control_ex().
  */
 
-#include <vector>                       /* std::vector                      */
-#include <pthread.h>                    /* pthread_t C structure            */
-
 #include "globals.h"                    /* globals, nullptr, & more         */
 #include "jack_assistant.hpp"           /* optional seq64::jack_assistant   */
 #include "gui_assistant.hpp"            /* seq64::gui_assistant             */
@@ -63,6 +60,14 @@
 #include "mastermidibus.hpp"            /* seq64::mastermidibus for ALSA    */
 #include "midi_control.hpp"             /* seq64::midi_control "struct"     */
 #include "sequence.hpp"                 /* seq64::sequence                  */
+
+#ifdef SEQ64_SONG_BOX_SELECT
+#include <functional>                   /* std::function, function objects  */
+#include <set>                          /* std::set, arbitary selection     */
+#endif
+
+#include <vector>                       /* std::vector                      */
+#include <pthread.h>                    /* pthread_t C structure            */
 
 /**
  *  This value is used to indicated that the queued-replace (queued-solo)
@@ -124,6 +129,10 @@
 #define PERFORM_KEY_LABELS_ON_SEQUENCE  9998
 #define PERFORM_NUM_LABELS_ON_SEQUENCE  9999
 
+/*
+ *  Do not document a namespace; it breaks Doxygen.
+ */
+
 namespace seq64
 {
     class keystroke;
@@ -162,6 +171,8 @@ struct performcallback
  *  This class supports the performance mode.  It has way too many data
  *  members, one of them public.  Might be ripe for refactoring.  That has its
  *  own dangers, of course.
+ *
+ *  One thing to do soon is remove the need to having GUI classes as friends.
  */
 
 class perform
@@ -199,6 +210,28 @@ class perform
 #endif  // SEQ64_JACK_SUPPORT
 
 public:
+
+#ifdef SEQ64_SONG_BOX_SELECT
+
+    /**
+     *  Provides a type to hold the unique shift-selected sequence numbers.
+     *  Although this can be considered a GUI function, it makes sense to
+     *  let perform manage it and encapsulate it.
+     */
+
+    typedef std::set<int> Selection;
+
+    /**
+     *  Provides a function type that can be applied to each sequence number
+     *  in a Selection.  Generally, the caller will bind a member function to
+     *  use in operate_on_set().  The first parameter is a sequence number
+     *  (obtained from the Selection).  The caller can bind additional
+     *  placeholders or parameters, if desired.
+     */
+
+    typedef std::function<void(int)> SeqOperation;
+
+#endif
 
     /**
      *  Provides settings for tempo recording.  Currently not used, though the
@@ -412,7 +445,7 @@ private:
      *  Provides a "vector" of patterns/sequences.
      *
      * \todo
-     *      First, make the sequence array a vector, and second, put allof
+     *      First, make the sequence array a vector, and second, put all of
      *      these flags into a structure and access those members indirectly.
      */
 
@@ -539,10 +572,10 @@ private:
     /**
      *  Indicates that playback is running.  However, this flag is conflated
      *  with some JACK support, and we have to supplement it with another
-     *  flag, m_pattern_playing.
+     *  flag, m_is_pattern_playing.
      */
 
-    bool m_running;
+    bool m_is_running;
 
     /**
      *  Indicates that a pattern is playing.  It replaces rc_settings ::
@@ -573,6 +606,35 @@ private:
      */
 
     bool m_looping;
+
+#ifdef SEQ64_SONG_RECORDING
+
+    /**
+     *  Indicates to record live sequence-trigger changes into the Song data.
+     */
+
+    bool m_song_recording;
+
+    /**
+     *  Snap recorded playback changes to the sequence length.
+     */
+
+    bool m_song_record_snap;
+
+    /**
+     *  Indicates to resume notes if the sequence is toggled after a Note On.
+     */
+
+    bool m_resume_note_ons;
+
+    /**
+     *  The global current tick, moved out from the output function so that
+     *  position can be set.
+     */
+
+    double m_current_tick;
+
+#endif
 
     /**
      *  Specifies the playback mode.  There are two, "live" and "song",
@@ -655,6 +717,14 @@ private:
      */
 
     mastermidibus * m_master_bus;
+
+    /**
+     *  Provides storage for this "rc" configuration option so that the
+     *  perform object can set it in the master buss once that has been
+     *  created.
+     */
+
+    bool m_filter_by_channel;
 
     /**
      *  Saves the clock settings obtained from the "rc" (options) file so that
@@ -829,7 +899,7 @@ private:
 
     bool m_auto_screenset_queue;
 
-#endif  // SEQ64_USE_AUTO_SCREENSET_QUEUE
+#endif
 
     /**
      *  A replacement for the c_max_sets constant.  Again, currently set to
@@ -889,10 +959,22 @@ private:
 
     bool m_is_modified;
 
+#ifdef SEQ64_SONG_BOX_SELECT
+
+    /**
+     *  Provides a set holding all of the sequences numbers that have been
+     *  shift-selected.  If we ever enable box-selection, this container will
+     *  support that as well.
+     */
+
+    Selection m_selected_seqs;
+
+#endif
+
     /**
      *  A condition variable to protect playback.  It is signalled if playback
      *  has been started.  The output thread function waits on this variable
-     *  until m_running and m_outputing are false.  This variable is also
+     *  until m_is_running and m_outputing are false.  This variable is also
      *  signalled in the perform destructor.
      */
 
@@ -928,7 +1010,7 @@ private:
 
     std::vector<int> m_undo_vect;
 
-    /*
+    /**
      * Used for redo track modification support.
      */
 
@@ -1000,6 +1082,15 @@ public:
     int sequence_count () const
     {
         return m_sequence_count;
+    }
+
+    /**
+     * \getter m_sequence_high
+     */
+
+    int sequence_high () const
+    {
+        return m_sequence_high;
     }
 
     /**
@@ -1151,7 +1242,7 @@ public:
     /**
      * \setter m_tempo_track_number
      *
-     * \param bw
+     * \param tempotrack
      *      Provides the value for beat-width.  Also used to set the
      *      beat-width in the JACK assistant object.
      */
@@ -1273,18 +1364,19 @@ public:
 
     void filter_by_channel (bool flag)
     {
+        m_filter_by_channel = flag;
         if (not_nullptr(m_master_bus))
             m_master_bus->filter_by_channel(flag);
     }
 
     /**
-     * \getter m_running
+     * \getter m_is_running
      *      Could also be called "is_playing()".
      */
 
     bool is_running () const
     {
-        return m_running;
+        return m_is_running;
     }
 
     /**
@@ -1302,7 +1394,7 @@ public:
 
     bool toggle_song_start_mode ()
     {
-        m_song_start_mode = ! m_song_start_mode; // m_playback_mode?
+        m_song_start_mode = ! m_song_start_mode;    // m_playback_mode
         return m_song_start_mode;
     }
 
@@ -1464,9 +1556,9 @@ public:
     bool follow_progress () const
     {
 #ifdef SEQ64_JACK_SUPPORT
-        return m_running && m_jack_asst.get_follow_transport();
+        return m_is_running && m_jack_asst.get_follow_transport();
 #else
-        return m_running;
+        return m_is_running;
 #endif
     }
 
@@ -1527,24 +1619,75 @@ public:
 
 public:
 
+    /**
+     * \getter m_master_bus->set_sequence_input()
+     */
+
+     void set_sequence_input (bool active, sequence * s)
+     {
+        if (not_nullptr_2(m_master_bus, s))
+            m_master_bus->set_sequence_input(active, s);
+     }
+
+    void set_recording (bool rec_active, bool thru_active, sequence * s);
+    void set_recording (bool rec_active, int seq, bool toggle = false);
+    void set_quantized_recording (bool rec_active, sequence * s);
+    void set_quantized_recording (bool rec_active, int seq, bool toggle = false);
+    void set_thru (bool rec_active, bool thru_active, sequence * s);
+    void set_thru (bool thru_active, int seq, bool toggle = false);
+    bool selected_trigger
+    (
+        int seqnum, midipulse droptick,
+        midipulse & tick0, midipulse & tick1
+    );
+
+#ifdef SEQ64_SONG_BOX_SELECT
+
+    bool selection_operation (SeqOperation func);
+    void box_insert (int dropseq, midipulse droptick);
+    void box_delete (int dropseq, midipulse droptick);
+    void box_toggle_sequence (int dropseq, midipulse droptick);
+    void box_unselect_sequences (int dropseq);
+    void box_move_triggers (midipulse tick);
+    void box_offset_triggers (midipulse offset);
+
+    /**
+     * \getter m_selected_seqs.empty()
+     */
+
+    bool box_selection_empty () const
+    {
+        return m_selected_seqs.empty();
+    }
+
+    /**
+     *
+     */
+
+    void box_selection_clear ()
+    {
+        m_selected_seqs.clear();
+    }
+
+#endif
+
     bool clear_all ();
     void launch (int ppqn);
     void new_sequence (int seq);                    /* seqmenu & mainwid    */
     void add_sequence (sequence * seq, int perf);   /* midifile             */
     void delete_sequence (int seq);                 /* seqmenu & mainwid    */
     bool is_sequence_in_edit (int seq);
-    void clear_sequence_triggers (int seq);
-    void print_triggers () const;
     void print_busses () const;
 
     /**
      *  The rough opposite of launch(); it doesn't stop the threads.  A minor
      *  simplification for the main() routine, hides the JACK support macro.
+     *  We might need to add code to stop any ongoing outputing.
      */
 
     void finish ()
     {
-        deinit_jack_transport();
+        (void) deinit_jack_transport();
     }
 
     /**
@@ -1556,14 +1699,7 @@ public:
         return m_tick;
     }
 
-    /**
-     * \setter m_tick
-     */
-
-    void set_tick (midipulse tick)
-    {
-        m_tick = tick;              /* printf("tick = %ld\n", m_tick); */
-    }
+    void set_tick (midipulse tick);
 
     /**
      * \getter m_jack_tick
@@ -1617,10 +1753,6 @@ public:
     {
         return m_starting_tick;
     }
-
-    /*
-     * Obsolete:  midipulse get_max_tick () const;
-     */
 
     void set_right_tick (midipulse tick, bool setstart = true);
 
@@ -1971,8 +2103,8 @@ public:
     midibpm increment_beats_per_minute ();
     midibpm page_decrement_beats_per_minute ();
     midibpm page_increment_beats_per_minute ();
-    int decrement_screenset ();
-    int increment_screenset ();
+    int decrement_screenset (int amount = 1);
+    int increment_screenset (int amount = 1);
 
     /**
      *  True if a sequence is empty and should be highlighted.  This setting
@@ -2013,7 +2145,9 @@ public:
 
     /**
      *  Retrieves the actual sequence, based on the pattern/sequence number.
-     *  This is the const version.
+     *  This is the const version.  Note that it is more efficient to call
+     *  this function and check the result than to call is_active() and then
+     *  call this function.
      *
      * \param seq
      *      The prospective sequence number.
@@ -2030,6 +2164,9 @@ public:
 
     /**
      *  Retrieves the actual sequence, based on the pattern/sequence number.
+     *  This is the non-const version.  Note that it is more efficient to call
+     *  this function and check the result than to call is_active() and then
+     *  call this function.
      *
      * \param seq
      *      The prospective sequence number.
@@ -2072,11 +2209,26 @@ public:
     bool playback_action (playback_action_t p, bool songmode = false);
 #endif
 
+    /*
+     * More trigger functions.
+     */
+
+    void clear_sequence_triggers (int seq);
+    void print_triggers () const;
     void move_triggers (bool direction);
     void copy_triggers ();
     void push_trigger_undo (int track = SEQ64_ALL_TRACKS);
     void pop_trigger_undo ();
     void pop_trigger_redo ();
+    bool get_trigger_state (int seqnum, midipulse tick) const;
+    void add_trigger (int seqnum, midipulse tick);
+    void delete_trigger (int seqnum, midipulse tick);
+    void add_or_delete_trigger (int seqnum, midipulse tick);
+    void split_trigger (int seqnum, midipulse tick);
+    void paste_trigger (int seqnum, midipulse tick);
+    void paste_or_split_trigger (int seqnum, midipulse tick);
+    bool intersect_triggers (int seqnum, midipulse tick);
+    midipulse get_max_trigger ();
 
     bool is_dirty_main (int seq);
     bool is_dirty_edit (int seq);
@@ -2084,7 +2236,7 @@ public:
     bool is_dirty_names (int seq);
     bool is_exportable (int seq) const;
 
-    void set_screenset (int ss);
+    int set_screenset (int ss);
 
     /**
      * \getter m_screenset
@@ -2131,22 +2283,43 @@ public:
         m_seqs_in_set = seqs;
     }
 
-public:     // TEMPORARY
+#ifdef SEQ64_SONG_RECORDING
 
-    /**
-     * \setter m_looping
-     *
-     * \param looping
-     *      The boolean value to set for looping, used in the performance
-     *      editor.
+    /*
+     * This is a long-standing request from user's, adapted from Kepler34.
      */
 
-    void set_looping (bool looping)
+    bool song_recording () const
     {
-        m_looping = looping;
+        return m_song_recording;
     }
 
-private:
+    bool song_record_snap () const
+    {
+        return m_song_record_snap;
+    }
+
+    bool resume_note_ons () const
+    {
+        return m_resume_note_ons;
+    }
+
+#endif  // SEQ64_SONG_RECORDING
+
+#ifdef SEQ64_SONG_BOX_SELECT
+
+    void select_triggers_in_range
+    (
+        int seq_low, int seq_high,
+        midipulse tick_start, midipulse tick_finish
+    );
+
+#endif
+
+    bool select_trigger (int dropseq, midipulse droptick);
+    void unselect_all_triggers ();
+
+public:
 
     /**
      * \getter m_have_undo
@@ -2189,8 +2362,7 @@ private:
         m_have_redo = redo;
     }
 
-    void split_trigger (int seqnum, midipulse tick);
-    midipulse get_max_trigger ();
+private:
 
     /**
      *  Convenience function for perfedit's collapse functionality.
@@ -2227,10 +2399,12 @@ private:
     midi_control & midi_control_toggle (int ctl);
     midi_control & midi_control_on (int ctl);
     midi_control & midi_control_off (int ctl);
-    void midi_control_event (const event & ev);
-    void handle_midi_control (int control, bool state);
+    bool midi_control_event (const event & ev);
+    bool midi_control_record (const event & ev);
+    bool handle_midi_control (int control, bool state);
     bool handle_midi_control_ex (int control, midi_control::action a, int v);
-    const std::string & get_screen_set_notepad (int screenset) const;
+    bool handle_midi_control_event (const event & ev, int ctrl, int offset = 0);
+    const std::string & get_screenset_notepad (int screenset) const;
 
     /**
      *  A better name for get_screen_set_notepad(), adapted from Kepler34.
@@ -2238,19 +2412,24 @@ private:
 
     const std::string & get_bank_name (int bank) const
     {
-        return get_screen_set_notepad(bank);
+        return get_screenset_notepad(bank);
     }
 
     /**
      *  Returns the notepad text for the current screen-set.
      */
 
-    const std::string & current_screen_set_notepad () const
+    const std::string & current_screenset_notepad () const
     {
-        return get_screen_set_notepad(m_screenset);
+        return get_screenset_notepad(m_screenset);
     }
 
-    void set_screen_set_notepad (int screenset, const std::string & note);
+    void set_screenset_notepad
+    (
+        int screenset,
+        const std::string & note,
+        bool is_load_modification = false
+    );
 
     /**
      *  Sets the notepad text for the current screen-set.
@@ -2259,9 +2438,9 @@ private:
      *      The string value to set into the notepad text.
      */
 
-    void set_screen_set_notepad (const std::string & note)
+    void set_screenset_notepad (const std::string & note)
     {
-        set_screen_set_notepad(m_screenset, note);
+        set_screenset_notepad(m_screenset, note);
     }
 
     void set_playing_screenset ();
@@ -2271,6 +2450,64 @@ private:
     void mute_group_tracks ();
     void select_and_mute_group (int g_group);
     void set_song_mute (mute_op_t op);
+
+    /*
+     * Deals with the colors used to represent specific sequences.
+     */
+
+    thumb_colors_t get_sequence_color (int seqnum) const
+    {
+        return thumb_colors_t(is_active(seqnum) ? m_seqs[seqnum]->color() : 0);
+    }
+
+    void set_sequence_colour (int seqnum, thumb_colors_t c)
+    {
+        if (is_active(seqnum))
+            m_seqs[seqnum]->color(int(c));
+    }
+
+    /*
+     * Deals with the editing mode of the specific sequence.
+     */
+
+    edit_mode_t seq_edit_mode (int seq) const
+    {
+        const sequence * sp = get_sequence(seq);
+        if (not_nullptr(sp))
+            return sp->edit_mode();
+        else
+            return edit_mode_t(0);
+    }
+
+    void seq_edit_mode (int seq, edit_mode_t ed)
+    {
+        sequence * sp = get_sequence(seq);
+        if (not_nullptr(sp))
+            sp->edit_mode(ed);
+    }
+
+#ifdef SEQ64_SONG_RECORDING
+
+    void song_recording_stop ();
+
+    void song_recording (bool f)
+    {
+        m_song_recording = f;
+        if (! f)
+            song_recording_stop();
+    }
+
+    void song_record_snap (bool f)
+    {
+        m_song_record_snap = f;
+    }
+
+    void resume_note_ons (bool f)
+    {
+        m_resume_note_ons = f;
+    }
+
+#endif  // SEQ64_SONG_RECORDING
 
     /**
      * \setter m_mode_group
@@ -2337,6 +2574,7 @@ private:
     void off_sequences ();
     void unqueue_sequences (int current_seq);
     void all_notes_off ();
+    void panic ();                              /* from kepler43        */
     void set_active (int seq, bool active);
     void set_was_active (int seq);
     void reset_sequences (bool pause = false);
@@ -2348,6 +2586,20 @@ private:
     void play (midipulse tick);
     void set_orig_ticks (midipulse tick);
     void set_beats_per_minute (midibpm bpm);    /* more than just a setter  */
+
+    /**
+     * \setter m_looping
+     *
+     * \param looping
+     *      The boolean value to set for looping, used in the performance
+     *      editor.
+     */
+
+    void set_looping (bool looping)
+    {
+        m_looping = looping;
+    }
+
     int max_active_set () const;
 
     /*
@@ -2356,48 +2608,8 @@ private:
 
     void launch_input_thread ();
     void launch_output_thread ();
-
-    /**
-     *  Initializes JACK support, if SEQ64_JACK_SUPPORT is defined.  Who calls
-     *  this routine?  The main() routine of the application [via launch()],
-     *  and the options module, when the Connect button is pressed.
-     *
-     * \return
-     *      Returns the result of the init() call; true if JACK sync is now
-     *      running.  If JACK support is not built into the application, then
-     *      this function returns false, to indicate that JACK is (definitely)
-     *      not running.
-     */
-
-    bool init_jack_transport ()
-    {
-#ifdef SEQ64_JACK_SUPPORT
-        return m_jack_asst.init();
-#else
-        return false;
-#endif
-    }
-
-    /**
-     *  Tears down the JACK infrastructure.  Called by launch() and in the
-     *  options module, when the Disconnect button is pressed.
-     *
-     * \return
-     *      Returns the result of the init() call; false if JACK sync is now
-     *      no longer running.  If JACK support is not built into the
-     *      application, then this function returns true, to indicate that
-     *      JACK is (definitely) not running.
-     */
-
-    bool deinit_jack_transport ()
-    {
-#ifdef SEQ64_JACK_SUPPORT
-        return m_jack_asst.deinit();
-#else
-        return true;
-#endif
-    }
-
+    bool init_jack_transport ();
+    bool deinit_jack_transport ();
     bool seq_in_playing_screen (int seq);
 
     /**
@@ -2465,15 +2677,15 @@ private:
     }
 
     /**
-     * \setter m_running
+     * \setter m_is_running
      *
      * \param running
      *      The value of the running flag to be set.
      */
 
-    void set_running (bool running)
+    void is_running (bool running)
     {
-        m_running = running;
+        m_is_running = running;
     }
 
     /**
@@ -2486,13 +2698,22 @@ private:
     }
 
     /**
+     * \getter m_playback_mode
+     */
+
+    bool playback_mode ()
+    {
+        return m_playback_mode;
+    }
+
+    /**
      * \setter m_playback_mode
      *
      * \param playbackmode
      *      The value of the playback mode flag to be set.
      */
 
-    void set_playback_mode (bool playbackmode)
+    void playback_mode (bool playbackmode)
     {
         m_playback_mode = playbackmode;
     }
@@ -2568,6 +2789,9 @@ private:
 
     bool log_current_tempo ();
     bool create_master_bus ();
+#ifdef USE_STAZED_PARSE_SYSEX               // more code to incorporate!!!
+    void parse_sysex (event a_e);           // copy, or reference???
+#endif
 
     /**
      *  Saves the clock settings read from the "rc" file so that they can be

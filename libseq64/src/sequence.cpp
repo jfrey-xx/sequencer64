@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-15
+ * \updates       2018-02-03
  * \license       GNU GPLv2 or above
  *
  *  The functionality of this class also includes handling some of the
@@ -50,7 +50,19 @@
 #include "sequence.hpp"
 #include "settings.hpp"                 /* seq64::rc() and choose_ppqn()    */
 
+/**
+ *  Enables and marks a user's patch for issue #95.
+ */
+
 #define LAYK_PULL_REQUEST_95
+
+/**
+ *  This value is used as the minimal increment for growing a trigger during
+ *  song-recording.  This value was originally 10, but let's us a power of 2.
+ *  This increment allows the rest of the threads to notice the change.
+ */
+
+#define SEQ64_SONG_RECORD_INC      16
 
 /*
  *  Do not document a namespace; it breaks Doxygen.
@@ -93,7 +105,7 @@ sequence::sequence (int ppqn)
     m_transposable              (true),
 #endif
     m_notes_on                  (0),
-    m_masterbus                 (nullptr),
+    m_master_bus                 (nullptr),
     m_playing_notes             (),             // an array
     m_was_playing               (false),
     m_playing                   (false),
@@ -101,6 +113,15 @@ sequence::sequence (int ppqn)
     m_quantized_rec             (false),
     m_thru                      (false),
     m_queued                    (false),
+#ifdef SEQ64_SONG_RECORDING
+    m_one_shot                  (false),
+    m_one_shot_tick             (0),
+    m_off_from_snap             (false),
+    m_song_playback_block       (false),
+    m_song_recording            (false),
+    m_song_recording_snap       (false),
+    m_song_record_tick       (0),
+#endif
 #ifdef SEQ64_STAZED_EXPAND_RECORD
     m_overwrite_recording       (false),
     m_loop_reset                (false),
@@ -119,6 +140,12 @@ sequence::sequence (int ppqn)
     m_maxbeats                  (c_maxbeats),
     m_ppqn                      (0),            /* set in constructor body   */
     m_seq_number                (-1),           /* may be set later          */
+#ifdef USE_SEQUENCE_COLOR
+    m_seq_colour                (0),
+#endif
+#ifdef USE_SEQUENCE_EDIT_MODE
+    m_seq_edit_mode             (EDIT_MODE_NOTE),   /* edit_mode_t           */
+#endif
     m_length                    (0),            /* set in constructor body   */
     m_snap_tick                 (0),            /* set in constructor body   */
     m_time_beats_per_measure    (4),
@@ -136,9 +163,9 @@ sequence::sequence (int ppqn)
     m_note_off_margin           (2)
 {
     m_ppqn = choose_ppqn(ppqn);
-    m_length = 4 * m_ppqn;                      /* one bar's worth of ticks */
-    m_snap_tick = m_ppqn / 4;
-    m_triggers.set_ppqn(m_ppqn);
+    m_length = 4 * int(m_ppqn);                 /* one bar's worth of ticks */
+    m_snap_tick = int(m_ppqn) / 4;
+    m_triggers.set_ppqn(int(m_ppqn));
     m_triggers.set_length(m_length);
     for (int i = 0; i < c_midi_notes; ++i)      /* no notes are playing now */
         m_playing_notes[i] = 0;
@@ -160,7 +187,7 @@ sequence::~sequence ()
  *  to keep a count/stack of modifications over all sequences in the
  *  performance.  Probably not practical, in general.  We will probably keep
  *  track of the modification of the buss (port) and channel numbers, as per
- *  GitHub Issue #47..
+ *  GitHub Issue #47.
  */
 
 void
@@ -197,7 +224,7 @@ sequence::partial_assign (const sequence & rhs)
         m_transposable  = rhs.m_transposable;
 #endif
         m_bus           = rhs.m_bus;
-        m_masterbus     = rhs.m_masterbus;          /* a pointer, be aware! */
+        m_master_bus     = rhs.m_master_bus;          /* a pointer, be aware! */
         m_playing       = false;
         m_name          = rhs.m_name;
         m_ppqn          = rhs.m_ppqn;
@@ -367,7 +394,7 @@ sequence::pop_trigger_redo ()
 }
 
 /**
- * \setter m_masterbus
+ * \setter m_master_bus
  *      Do we need to call set_dirty_mp() here?  It doesn't affect any
  *      user-interface elements.
  *
@@ -382,7 +409,7 @@ void
 sequence::set_master_midi_bus (mastermidibus * mmb)
 {
     automutex locker(m_mutex);
-    m_masterbus = mmb;
+    m_master_bus = mmb;
 }
 
 /**
@@ -398,8 +425,11 @@ void
 sequence::set_beats_per_bar (int beatspermeasure)
 {
     automutex locker(m_mutex);
-    m_time_beats_per_measure = beatspermeasure;
-    set_dirty_mp();
+    if (beatspermeasure <= int(USHRT_MAX))
+    {
+        m_time_beats_per_measure = (unsigned short)(beatspermeasure);
+        set_dirty_mp();
+    }
 }
 
 /**
@@ -415,8 +445,11 @@ void
 sequence::set_beat_width (int beatwidth)
 {
     automutex locker(m_mutex);
-    m_time_beat_width = beatwidth;
-    set_dirty_mp();
+    if (beatwidth <= int(USHRT_MAX))
+    {
+        m_time_beat_width = (unsigned short)(beatwidth);
+        set_dirty_mp();
+    }
 }
 
 /**
@@ -939,19 +972,46 @@ void
 sequence::set_rec_vol (int recvol)
 {
     automutex locker(m_mutex);
-    bool valid = m_rec_vol >= 0;
+    bool valid = recvol >= 0;                       /* not "m_rec_vol >= 0"! */
     if (valid)
-        valid = m_rec_vol <= SEQ64_MAX_NOTE_ON_VELOCITY;
+        valid = recvol <= SEQ64_MAX_NOTE_ON_VELOCITY;
 
     if (! valid)
-        valid = m_rec_vol == SEQ64_PRESERVE_VELOCITY;
+        valid = recvol == SEQ64_PRESERVE_VELOCITY;
 
     if (valid)
     {
-        m_rec_vol = recvol;
+        m_rec_vol = short(recvol);
         if (m_rec_vol > 0)
             m_note_on_velocity = m_rec_vol;
     }
+}
+
+/**
+ *  Toggles the playing status of this sequence.  How exactly does this
+ *  differ from toggling the mute status?
+ *
+ * \param tick
+ *      The position from which to resume Note Ons, if appplicable. Resuming
+ *      is a song-recording feature.
+ *
+ * \param resumenoteons
+ *      A song-recording option.
+ */
+
+void
+sequence::toggle_playing (midipulse tick, bool resumenoteons)
+{
+    toggle_playing();
+    if (get_playing() && resumenoteons)
+    {
+#ifdef SEQ64_SONG_RECORDING
+        resume_note_ons(tick);
+#endif
+    }
+#ifdef SEQ64_SONG_RECORDING
+    m_off_from_snap = false;
+#endif
 }
 
 /**
@@ -966,16 +1026,21 @@ void
 sequence::toggle_queued ()
 {
     automutex locker(m_mutex);
-    set_dirty_mp();
     m_queued = ! m_queued;
     m_queued_tick = m_last_tick - mod_last_tick() + m_length;
+#ifdef SEQ64_SONG_RECORDING
+    m_off_from_snap = true;
+#endif
+    set_dirty_mp();
 }
+
+#ifdef SEQ64_USE_AUTO_SCREENSET_QUEUE
 
 /**
  * \setter m_queued
  *      Turns off (resets) the queued flag and sets the dirty-mp flag.
  *      Do we need to set m_queued_tick as in toggle_queued()?  Currently not
- *      used.
+ *      used, disabled by SEQ64_USE_AUTO_SCREENSET_QUEUE macro.
  *
  * \threadsafe
  */
@@ -984,15 +1049,19 @@ void
 sequence::off_queued ()
 {
     automutex locker(m_mutex);
-    set_dirty_mp();
     m_queued = false;
+#ifdef SEQ64_SONG_RECORDING
+    m_off_from_snap = true;
+#endif
+    set_dirty_mp();
 }
 
 /**
  * \setter m_queued
  *      Turns on (sets) the queued flag and sets the dirty-mp flag.
+ *
  *      Do we need to set m_queued_tick as in toggle_queued()?  Currently not
- *      used.
+ *      used; see disabled SEQ64_USE_AUTO_SCREENSET_QUEUE in perform.cpp.
  *
  * \threadsafe
  */
@@ -1004,6 +1073,8 @@ sequence::on_queued ()
     m_queued = true;
     set_dirty_mp();
 }
+
+#endif  // SEQ64_USE_AUTO_SCREENSET_QUEUE
 
 /**
  *  The play() function dumps notes starting from the given tick, and it
@@ -1017,11 +1088,15 @@ sequence::on_queued ()
  *      stop button.  Works with JACK, with issues, but we'd like to have
  *      the stop button do a rewind in JACK, too.
  *
- *  The trigger calculations have been offloaded to the triggers::play()
- *  function.  It's return value and side-effects tell if there's a change in
- *  playing based on triggers and tells the ticks that bracket it.
+ *  If we are playing the song data (sequence on/off triggers, we are in
+ *  playback mode.  And if we are song-recording, we then keep growing the
+ *  sequence's song-data triggers.
  *
- * \param end_tick
+ *  The trigger calculations have been offloaded to the triggers::play()
+ *  function.  Its return value and side-effects tell if there's a change in
+ *  playing based on triggers, and provides the ticks that bracket it.
+ *
+ * \param tick
  *      Provides the current end-tick value.  The tick comes in as a global
  *      tick.
  *
@@ -1032,25 +1107,51 @@ sequence::on_queued ()
  *      format.  False indicates that the playback is controlled by the main
  *      window, in live mode.
  *
+ * \param resume_note_ons
+ *      A song-recording parameter.
+ *
  * \threadsafe
  */
 
 void
-sequence::play (midipulse end_tick, bool playback_mode)
+sequence::play
+(
+    midipulse tick,
+    bool playback_mode
+#ifdef SEQ64_SONG_RECORDING
+    , bool resume_note_ons
+#endif
+)
 {
     automutex locker(m_mutex);
-    bool trigger_turning_off = false;       /* turn off after frame play    */
+    bool trigger_turning_off = false;       /* turn off after in-frame play */
     midipulse start_tick = m_last_tick;     /* modified in triggers::play() */
+    midipulse end_tick = tick;
     if (m_song_mute)
     {
         set_playing(false);
     }
     else
     {
+        /*
+         *  We make the song_recording() clause active for both Live and Song
+         *  mode now.
+         */
+
+#ifdef SEQ64_SONG_RECORDING
+        if (song_recording())
+        {
+            grow_trigger(song_record_tick(), end_tick, SEQ64_SONG_RECORD_INC);
+            set_dirty_mp();             /* force redraw                 */
+        }
+#endif
+
         if (playback_mode)                  /* song mode: on/off triggers   */
+        {
             trigger_turning_off = m_triggers.play(start_tick, end_tick);
+        }
     }
-    if (m_playing)                          /* play notes in frame  */
+    if (m_playing)                          /* play notes in frame          */
     {
         midipulse offset = m_length - m_trigger_offset;
         midipulse start_tick_offset = start_tick + offset;
@@ -1152,7 +1253,7 @@ sequence::remove (event_list::iterator i)
     event & er = DREF(i);
     if (er.is_note_off() && m_playing_notes[er.get_note()] > 0)
     {
-        m_masterbus->play(m_bus, &er, m_midi_channel);
+        m_master_bus->play(m_bus, &er, m_midi_channel);
         --m_playing_notes[er.get_note()];                   // ugh
     }
     m_events.remove(i);                                     // erase(i)
@@ -1204,7 +1305,8 @@ sequence::remove_marked ()
 #ifdef LAYK_PULL_REQUEST_95
 
     /*
-     * We have to make note off before moving and cutting. Here or in event_list?
+     * We have to make Note Offs before moving and cutting. Here or in
+     * event_list?
      */
 
     for (event_list::iterator i = m_events.begin(); i != m_events.end(); ++i)
@@ -2808,12 +2910,12 @@ sequence::add_note
                 e.paint();
 
             e.set_status(EVENT_NOTE_ON);
-            e.set_data(note, hardwire ? m_note_on_velocity : velocity);
+            e.set_data(note, hardwire ? midibyte(m_note_on_velocity) : velocity);
             e.set_timestamp(tick);
             add_event(e);
 
             e.set_status(EVENT_NOTE_OFF);
-            e.set_data(note, m_note_off_velocity);      /* HARD-WIRED */
+            e.set_data(note, midibyte(m_note_off_velocity));    /* HARD-WIRED */
             e.set_timestamp(tick + len);
             result = add_event(e);
         }
@@ -3065,20 +3167,25 @@ bool
 sequence::stream_event (event & ev)
 {
     automutex locker(m_mutex);
-    bool result = channel_match(ev);            /* set if channel matches   */
+    bool result = channels_match(ev);           /* set if channel matches   */
     if (result)
     {
 #ifdef SEQ64_STAZED_EXPAND_RECORD
+
         /*
          * If in overwrite record more, any events after reset should clear
          * the old items from the previous pass through the loop.
+         *
+         * TODO:  If the last event was a Note Off, we should clear it here.
+         *        How?
          */
 
-        if (m_overwrite_recording && m_loop_reset)
+        if (get_overwrite_rec() && get_loop_reset())
         {
-            m_loop_reset = false;
+            set_loop_reset(false);
             remove_all();                       /* clear old items          */
         }
+
 #endif
         ev.set_status(ev.get_status());         /* clear the channel nybble */
         ev.mod_timestamp(m_length);             /* adjust the tick          */
@@ -3273,9 +3380,9 @@ sequence::play_note_on (int note)
     automutex locker(m_mutex);
     event e;
     e.set_status(EVENT_NOTE_ON);
-    e.set_data(note, m_note_on_velocity);           // SEQ64_MIDI_COUNT_MAX-1
-    m_masterbus->play(m_bus, &e, m_midi_channel);
-    m_masterbus->flush();
+    e.set_data(note, midibyte(m_note_on_velocity));      // SEQ64_MIDI_COUNT_MAX-1
+    m_master_bus->play(m_bus, &e, m_midi_channel);
+    m_master_bus->flush();
 }
 
 /**
@@ -3295,9 +3402,9 @@ sequence::play_note_off (int note)
     automutex locker(m_mutex);
     event e;
     e.set_status(EVENT_NOTE_OFF);
-    e.set_data(note, m_note_off_velocity);          // SEQ64_MIDI_COUNT_MAX-1
-    m_masterbus->play(m_bus, &e, m_midi_channel);
-    m_masterbus->flush();
+    e.set_data(note, midibyte(m_note_off_velocity));
+    m_master_bus->play(m_bus, &e, m_midi_channel);
+    m_master_bus->flush();
 }
 
 /**
@@ -3373,6 +3480,17 @@ sequence::intersect_triggers
 {
     automutex locker(m_mutex);
     return m_triggers.intersect(position, start, ender);
+}
+
+/**
+ *
+ */
+
+bool
+sequence::intersect_triggers (midipulse position)
+{
+    automutex locker(m_mutex);
+    return m_triggers.intersect(position);
 }
 
 /**
@@ -3531,6 +3649,13 @@ void
 sequence::grow_trigger (midipulse tickfrom, midipulse tickto, midipulse len)
 {
     automutex locker(m_mutex);
+
+    /*
+     * This check doesn't hurt, but doesn't prevent creating the new trigger.
+     *
+     * if (! get_queued())
+     */
+
     m_triggers.grow(tickfrom, tickto, len);
 }
 
@@ -3545,7 +3670,7 @@ sequence::grow_trigger (midipulse tickfrom, midipulse tickto, midipulse len)
  */
 
 void
-sequence::del_trigger (midipulse tick)
+sequence::delete_trigger (midipulse tick)
 {
     automutex locker(m_mutex);
     m_triggers.remove(tick);
@@ -3572,7 +3697,10 @@ sequence::set_trigger_offset (midipulse trigger_offset)
         m_trigger_offset %= m_length;
     }
     else
+    {
+        errprint("set_trigger_offset(): seq length = 0");
         m_trigger_offset = trigger_offset;
+    }
 }
 
 /**
@@ -3589,6 +3717,34 @@ sequence::split_trigger (midipulse splittick)
 {
     automutex locker(m_mutex);
     m_triggers.split(splittick);
+}
+
+/**
+ *  Half-splits a trigger.
+ *
+ * \param splittick
+ *      The time location of the split.
+ */
+
+void
+sequence::half_split_trigger (midipulse splittick)
+{
+    automutex locker(m_mutex);
+    m_triggers.half_split(splittick);
+}
+
+/**
+ *  Exact-splits a trigger.
+ *
+ * \param splittick
+ *      The time location of the split.
+ */
+
+void
+sequence::exact_split_trigger (midipulse splittick)
+{
+    automutex locker(m_mutex);
+    m_triggers.exact_split(splittick);
 }
 
 /**
@@ -3717,13 +3873,13 @@ sequence::selected_trigger_end ()
  *      Selects which movement will be done, as discussed above.
  *
  * \return
- *      Returns the value of triggers::move_selected(), which indicate
+ *      Returns the value of triggers::move_selected(), which indicates
  *      that the movement could be made.  Used in
  *      Seq24PerfInput::handle_motion_key().
  */
 
 bool
-sequence::move_selected_triggers_to
+sequence::move_triggers
 (
     midipulse tick, bool adjustoffset, triggers::grow_edit_t which
 )
@@ -3731,6 +3887,21 @@ sequence::move_selected_triggers_to
     automutex locker(m_mutex);
     return m_triggers.move_selected(tick, adjustoffset, which);
 }
+
+#ifdef SEQ64_SONG_BOX_SELECT
+
+/**
+ *  Used in the song-sequence grid TODO TODO TODO
+ */
+
+void
+sequence::offset_triggers (midipulse tick, triggers::grow_edit_t editmode)
+{
+    automutex locker(m_mutex);
+    m_triggers.offset_selected(tick, editmode);
+}
+
+#endif
 
 /**
  *  Get the ending value of the last trigger in the trigger-list.
@@ -3760,7 +3931,7 @@ sequence::get_max_trigger ()
  */
 
 bool
-sequence::get_trigger_state (midipulse tick)
+sequence::get_trigger_state (midipulse tick) const
 {
     automutex locker(m_mutex);
     return m_triggers.get_state(tick);
@@ -3802,6 +3973,20 @@ sequence::select_trigger (midipulse tick)
 }
 
 /**
+ *  Unselects the desired trigger.
+ *
+ * \param tick
+ *      Indicates the trigger to be unselected.
+ */
+
+bool
+sequence::unselect_trigger (midipulse tick)
+{
+    automutex locker(m_mutex);
+    return m_triggers.unselect(tick);
+}
+
+/**
  *  Unselects all triggers.
  *
  * \return
@@ -3820,7 +4005,7 @@ sequence::unselect_triggers ()
  */
 
 void
-sequence::del_selected_trigger ()
+sequence::delete_selected_trigger ()
 {
     automutex locker(m_mutex);
     m_triggers.remove_selected();
@@ -3833,9 +4018,8 @@ sequence::del_selected_trigger ()
 void
 sequence::cut_selected_trigger ()
 {
-    copy_selected_trigger();            /* locks itself */
-
     automutex locker(m_mutex);
+    copy_selected_trigger();                    /* locks itself (recursive) */
     m_triggers.remove_selected();
 }
 
@@ -4062,9 +4246,8 @@ sequence::get_next_note_event
     int & note, bool & selected, int & velocity
 )
 {
-    // automutex locker(m_mutex);               // WILL IT HELP???? No.
     tick_f = 0;
-    while (m_iterator_draw != m_events.end())   /* NOT THREADSAFE!!!!!      */
+    while (m_iterator_draw != m_events.end())   /* not threadsafe           */
     {
         event & drawevent = DREF(m_iterator_draw);
         bool isnoteon = drawevent.is_note_on();
@@ -4176,7 +4359,7 @@ sequence::reset_ex_iterator (event_list::const_iterator & evi)
  * \param cc
  *      The continuous controller value that might be desired.
  *
- * \param [out] ev
+ * \param [out] evi
  *      An iterator return value for the next event found.  The caller might
  *      want to check if it is a Tempo event.  Do not use this iterator if
  *      false is returned!
@@ -4435,8 +4618,12 @@ sequence::set_length (midipulse len, bool adjust_triggers, bool verify)
  *      The measures calculation is useless if the BPM (beats/minute) varies
  *      throughout the song.
  *
- * \param bpm
- *      Provides the beats per minute, a floating value.
+ * \param bpb
+ *      Provides the beats per bar (measure).
+ *
+ * \param ppqn
+ *      Provides the pulses-per-quarter-note to apply to the length
+ *      application.
  *
  * \param bw
  *      Provides the beatwidth (typically 4) from the time signature.
@@ -4498,10 +4685,16 @@ sequence::set_playing (bool p)
         set_dirty();
     }
     m_queued = false;
+#ifdef SEQ64_SONG_RECORDING
+    m_one_shot = false;
+#endif
 }
 
 /**
  * \setter m_recording and m_notes_on
+ *
+ *  This function sets m_notes_on to 0, but this should be done only if the
+ *  recording status has changed.
  *
  * \threadsafe
  */
@@ -4510,8 +4703,53 @@ void
 sequence::set_recording (bool r)
 {
     automutex locker(m_mutex);
+    m_notes_on = 0;             // should this require (r != m_recording)?
     m_recording = r;
-    m_notes_on = 0;
+}
+
+/**
+ * \setter m_quantized_rec
+ *
+ *  What about doing this?
+ *
+ *      m_master_bus->set_sequence_input(record_active, this);
+ *
+ * \threadsafe
+ */
+
+void
+sequence::set_quantized_recording (bool qr)
+{
+    automutex locker(m_mutex);
+    m_notes_on = 0;             // should this require (qr != m_quantized_rec)?
+    m_quantized_rec = qr;
+}
+
+/**
+ *  Like perform::set_sequence_input(), but it uses the internal recording
+ *  status directly, rather than getting it from seqedit.
+ *
+ *  Do we need a quantized recording version, or is setting the
+ *  quantized-recording flag sufficient?
+ *
+ * \param record_active
+ *      Provides the desired status to set recording.
+ *
+ * \param toggle
+ *      If true, ignore the first parameter and toggle the flag.  The default
+ *      value is false.
+ */
+
+void
+sequence::set_input_recording (bool record_active, bool toggle)
+{
+    if (toggle)
+        record_active = ! m_recording;
+
+    if (! m_thru)
+        m_master_bus->set_sequence_input(record_active, this);
+
+    set_recording(record_active);
 }
 
 /**
@@ -4525,19 +4763,6 @@ sequence::set_snap_tick (int st)
 {
     automutex locker(m_mutex);
     m_snap_tick = st;
-}
-
-/**
- * \setter m_quantized_rec
- *
- * \threadsafe
- */
-
-void
-sequence::set_quantized_rec (bool qr)
-{
-    automutex locker(m_mutex);
-    m_quantized_rec = qr;
 }
 
 #ifdef SEQ64_STAZED_EXPAND_RECORD
@@ -4581,6 +4806,30 @@ sequence::set_thru (bool r)
 {
     automutex locker(m_mutex);
     m_thru = r;
+}
+
+/**
+ *  Like perform::set_sequence_input(), but it uses the internal thru
+ *  status directly, rather than getting it from seqedit.
+ *
+ * \param thru_active
+ *      Provides the desired status to set the through state.
+ *
+ * \param toggle
+ *      If true, ignore the first parameter and toggle the flag.  The default
+ *      value is false.
+ */
+
+void
+sequence::set_input_thru (bool thru_active, bool toggle)
+{
+    if (toggle)
+        thru_active = ! m_thru;
+
+    if (! m_recording)
+        m_master_bus->set_sequence_input(thru_active, this);
+
+    set_thru(thru_active);
 }
 
 /**
@@ -4645,12 +4894,14 @@ sequence::title () const
 }
 
 /**
- *  Sets the m_midi_channel number>
+ *  Sets the m_midi_channel number, which is the output channel for this
+ *  sequence.
  *
  * \threadsafe
  *
  * \param ch
- *      The MIDI channel to set as the channel number for this sequence.
+ *      The MIDI channel to set as the output channel number for this
+ *      sequence.
  *
  * \param user_change
  *      If true (the default value is false), the user has decided to change
@@ -4701,7 +4952,7 @@ sequence::print_triggers () const
 
 /**
  *  Takes an event that this sequence is holding, and places it on the MIDI
- *  buss.  This function does not bother checking if m_masterbus is a null
+ *  buss.  This function does not bother checking if m_master_bus is a null
  *  pointer.
  *
  * \param ev
@@ -4734,14 +4985,14 @@ sequence::put_event_on_bus (event & ev)
          *      actually playing an event?
          */
 
-        m_masterbus->play(m_bus, &ev, m_midi_channel);
-        m_masterbus->flush();
+        m_master_bus->play(m_bus, &ev, m_midi_channel);
+        m_master_bus->flush();
     }
 }
 
 /**
  *  Sends a note-off event for all active notes.  This function does not
- *  bother checking if m_masterbus is a null pointer.
+ *  bother checking if m_master_bus is a null pointer.
  *
  * \threadsafe
  */
@@ -4756,12 +5007,13 @@ sequence::off_playing_notes ()
         while (m_playing_notes[x] > 0)
         {
             e.set_status(EVENT_NOTE_OFF);
-            e.set_data(x, 0);
-            m_masterbus->play(m_bus, &e, m_midi_channel);
-            m_playing_notes[x]--;
+            e.set_data(x, midibyte(127));               /* or is 0 better?  */
+            m_master_bus->play(m_bus, &e, m_midi_channel);
+            if (m_playing_notes[x] > 0)
+                m_playing_notes[x]--;
         }
     }
-    m_masterbus->flush();
+    m_master_bus->flush();
 }
 
 /**
@@ -4897,6 +5149,10 @@ sequence::transpose_notes (int steps, int scale)
 
 #ifdef USE_STAZED_SHIFT_SUPPORT
 
+/**
+ *  We need to look into this function.
+ */
+
 void
 sequence::shift_notes (midipulse ticks)
 {
@@ -4904,17 +5160,17 @@ sequence::shift_notes (midipulse ticks)
     {
         automutex locker(m_mutex);
         event_list shifted_events;
-        m_events_undo.push(m_events);               /* push_undo(), no lock  */
+        m_events_undo.push(m_events);               /* push_undo(), no lock */
         for (event_list::iterator i = m_events.begin(); i != m_events.end(); ++i)
         {
             event & er = DREF(i);
-            if (er.is_marked() && er.is_note())     /* shiftable event?  */
+            if (er.is_marked() && er.is_note())     /* shiftable event?     */
             {
                 event e = er;
                 e.unmark();
 
                 midipulse timestamp = e.get_timestamp() + ticks;
-                if (timestamp < 0L)                     /* wraparound */
+                if (timestamp < 0L)                 /* wraparound           */
                     timestamp = m_length - ((-timestamp) % m_length);
                 else
                     timestamp %= m_length;
@@ -5269,6 +5525,42 @@ sequence::set_parent (perform * p)
         m_parent = p;
 }
 
+#ifdef SEQ64_SONG_RECORDING
+
+/**
+ *  Why don't we see this in kepler34?  We do, in the MidiPerformance::play()
+ *  function.  We refactored this, Chris.  Remember?  :-D
+ *
+ * \param tick
+ *      Provides the current active pulse position, the tick/pulse from which
+ *      to start playing.
+ *
+ * \param playbackmode
+ *      If true, we are in Song mode.  Otherwise, Live mode.
+ *
+ * \param resumenoteons
+ *      Indicates if we are to resume Note Ons.  Used by perform::play().
+ */
+
+void
+sequence::play_queue (midipulse tick, bool playbackmode, bool resumenoteons)
+{
+    if (check_queued_tick(tick))
+    {
+        play(get_queued_tick() - 1, playbackmode, resumenoteons);
+        toggle_playing(tick, resumenoteons);
+    }
+    if (one_shot() && one_shot_tick() <= tick)
+    {
+        play(one_shot_tick() - 1, playbackmode, resumenoteons);
+        toggle_playing(tick, resumenoteons);
+        toggle_queued();        /* queue it to mute it again after one play */
+    }
+    play(tick, playbackmode, resumenoteons);
+}
+
+#else
+
 /**
  *  Provides encapsulation for a series of called used in perform::play().
  *  Starts the playing of a pattern/sequence.  This function just has the
@@ -5280,7 +5572,7 @@ sequence::set_parent (perform * p)
  *      the seqroll show the progress bar in motion.
  *
  * \param tick
- *  Provides the tick/pulse from which to start playing.
+ *      Provides the tick/pulse from which to start playing.
  *
  * \param playbackmode
  *      Indicates if the playback is in live mode (false) or song mode (true).
@@ -5291,11 +5583,13 @@ sequence::play_queue (midipulse tick, bool playbackmode)
 {
     if (check_queued_tick(tick))
     {
-        play(get_queued_tick() - 1, playbackmode);
+        play(get_queued_tick() - 1, playbackmode /* , resume_note_ons */ );
         toggle_playing();
     }
     play(tick, playbackmode);
 }
+
+#endif  // SEQ64_SONG_RECORDING
 
 /**
  *  Actually, useful mainly for the user-interface, this function calculates
@@ -5309,7 +5603,7 @@ sequence::play_queue (midipulse tick, bool playbackmode)
  * \param start
  *      The starting tick of the note event.
  *
- * \param start
+ * \param finish
  *      The ending tick of the note event.
  *
  * \return
@@ -5328,6 +5622,126 @@ sequence::handle_size (midipulse start, midipulse finish)
 
     return result;
 }
+
+#ifdef SEQ64_SONG_RECORDING
+
+/**
+ *  Toggles the m_one_shot flag, sets m_off_from_snap to true, and adjusts
+ *  m_one_shot_tick according to m_last_tick and m_length.
+ */
+
+void
+sequence::toggle_one_shot ()
+{
+    automutex locker(m_mutex);
+    set_dirty_mp();
+    m_one_shot = ! m_one_shot;
+    m_one_shot_tick = m_last_tick - mod_last_tick() + m_length;
+    m_off_from_snap = true;
+}
+
+/**
+ *  Sets the dirty flag, sets m_one_shot to false, and m_off_from_snap to
+ *  true. This function remains unused here and in Kepler34.
+ */
+
+void
+sequence::off_one_shot ()
+{
+    automutex locker(m_mutex);
+    set_dirty_mp();
+    m_one_shot = false;
+    m_off_from_snap = true;
+}
+
+/**
+ *  Starts the growing of the sequence for Song recording.  This process
+ *  starts by adding a chunk of SEQ64_SONG_RECORD_INC ticks to the
+ *  trigger, which allows the rest of the threads to notice the change.
+ *
+ * \question
+ *      Do we need to call set_dirty_mp() here?
+ *
+ * \param tick
+ *      Provides the current tick, which helps set the recorded block's
+ *      boundaries, and is copied into m_song_record_tick.
+ *
+ * \param snap
+ *      Indicates if we are to snap the recording to the configured boundary,
+ *      and is copied into m_song_recording_snap.
+ */
+
+void
+sequence::song_recording_start (midipulse tick, bool snap)
+{
+    add_trigger(tick, SEQ64_SONG_RECORD_INC);
+    m_song_recording_snap = snap;
+    m_song_record_tick = tick;
+    m_song_recording = true;
+
+    /*
+     * Do we need to add this setting?
+     *
+     * m_song_recording_block = false;
+     */
+}
+
+/**
+ *  Stops the growing of the sequence for Song recording.  If we have been
+ *  recording, we snap the end of the trigger segment to the next whole
+ *  sequence interval.
+ *
+ * \question
+ *      Do we need to call set_dirty_mp() here?
+ *
+ * \param tick
+ *      Provides the current tick, which helps set the recorded block's
+ *      boundaries.
+ */
+
+void
+sequence::song_recording_stop (midipulse tick)
+{
+    m_song_playback_block = m_song_recording = false;
+    if (m_song_recording_snap)
+    {
+        midipulse len = m_length - (tick % m_length);
+        m_triggers.grow(m_song_record_tick, tick, len);
+        m_off_from_snap = true;
+    }
+}
+
+/**
+ *  If the Note-On event is after the Note-Off event, the pattern wraps around,
+ *  so that we play it now to resume.
+ *
+ * \param tick
+ *      The current tick-time, in MIDI pulses.
+ */
+
+void
+sequence::resume_note_ons (midipulse tick)
+{
+    for         /* would like a const_iterator, but put_event_on_bus()...   */
+    (
+        event_list::iterator ei = m_events.begin(); ei != m_events.end(); ++ei
+    )
+    {
+        if (ei->is_note_on())
+        {
+            event * link = ei->get_linked();
+            if (not_nullptr(link))
+            {
+                midipulse on = ei->get_timestamp();      /* see banner notes */
+                midipulse off = link->get_timestamp();
+                if (on < (tick % m_length) && off > (tick % m_length))
+                    put_event_on_bus(*ei);
+            }
+        }
+    }
+}
+
+#endif      // SEQ64_SONG_RECORDING
 
 }           // namespace seq64
 

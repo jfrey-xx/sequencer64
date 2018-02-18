@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-16
+ * \updates       2017-12-15
  * \license       GNU GPLv2 or above
  *
  *  The performance window allows automatic control of when each
@@ -55,28 +55,8 @@
 #include "perfedit.hpp"
 #include "perform.hpp"
 #include "perfroll.hpp"
-#include "perfroll_input.hpp"
 #include "sequence.hpp"
 #include "settings.hpp"                 /* seq64::rc() or seq64::usr()  */
-
-/**
- *  Static (private) convenience values.  We need to be able to adjust
- *  s_perfroll_background_x per the selected PPQN value.  This adjustment is
- *  made in the constructor, and assigned to the perfroll::m_background_x
- *  member.  We need named values for 4 and for 16 here.
- *
- *  FIXME:
- *  The 1200 added to background_x is necessary for proper display of zoomed
- *  grid on high bp_measure (5 and above) with low bw (1) - the amount should
- *  probably be "c_perf_scale_x/m_perf_scale_x". The 1200 is the max needed
- *  for full zoom of 8 with 16 bp_mes and 1 bw.  Without the adjustment the
- *  grid display gets truncated on zoom.  Figure this out when you are really
- *  bored!
- */
-
-static int s_perfroll_size_box_w = 6;               /* 3; */
-static int s_perfroll_background_x =
-    (SEQ64_DEFAULT_PPQN * 4 * 16) / c_perf_max_zoom; /* stazed */
 
 /*
  * Do not document the namespace; it breaks Doxygen.
@@ -86,7 +66,51 @@ namespace seq64
 {
 
 /**
+ *  Static (private) convenience values.  We need to be able to adjust
+ *  sm_perfroll_background_x per the selected PPQN value.  This adjustment is
+ *  made in the constructor, and assigned to the perfroll::m_background_x
+ *  member.
+ *
+ *  sm_perfroll_size_box_w is copied into the m_size_box_w member, and is the
+ *  width of the small square handle in the corner of each trigger segment.
+ *  It gets adjusted in perfroll::set_ppqn().
+ */
+
+int perfroll::sm_perfroll_size_box_w = 6;
+
+/**
+ *
+ *  sm_perfroll_background_x is copied into m_background_x; it gets adjusted
+ *  in perfroll::set_ppqn().
+ */
+
+int perfroll::sm_perfroll_background_x =
+    (SEQ64_DEFAULT_PPQN * 4 * 16) / c_perf_max_zoom;        /* stazed */
+
+/**
+ *  Provides sizing information for the perfroll-derived classes, using in the
+ *  Seq24PerfInput and FruityPerfInput classes.
+ */
+
+int perfroll::sm_perfroll_size_box_click_w = 4;
+
+/**
  *  Principal constructor.
+ *
+ * \param p
+ *      The perform object that this class will affect via user interaction.
+ *
+ * \param parent
+ *      The perfedit object that holds this user-interface class.
+ *
+ * \param hadjust
+ *      A horizontal adjustment object, used here to control scrolling.
+ *
+ * \param vadjust
+ *      A vertical adjustment object, used here to control scrolling.
+ *
+ * \param ppqn
+ *      The "resolution" of the MIDI file, used in zooming and scaling.
  */
 
 perfroll::perfroll
@@ -99,18 +123,22 @@ perfroll::perfroll
 ) :
     gui_drawingarea_gtk2    (p, hadjust, vadjust, 10, 10),
     m_parent                (parent),
+    m_adding                (false),
+    m_adding_pressed        (false),
     m_h_page_increment      (usr().perf_h_page_increment()),
     m_v_page_increment      (usr().perf_v_page_increment()),
-    m_snap                  (0),
+    m_snap_x                (0),
+    m_snap_y                (0),
     m_ppqn                  (0),                            // set in the body
     m_page_factor           (SEQ64_PERFROLL_PAGE_FACTOR),   // 4096
     m_divs_per_beat         (SEQ64_PERFROLL_DIVS_PER_BEAT), // 16
     m_ticks_per_bar         (0),                            // set in the body
     m_perf_scale_x          (c_perf_scale_x),               // 32 ticks per pixel
+    m_w_scale_x             (sm_perfroll_size_box_click_w * m_perf_scale_x),
     m_zoom                  (c_perf_scale_x),               // 32 ticks per pixel
     m_names_y               (c_names_y),
-    m_background_x          (s_perfroll_background_x),      // gets adjusted!
-    m_size_box_w            (s_perfroll_size_box_w),        // 3
+    m_background_x          (sm_perfroll_background_x),     // gets adjusted!
+    m_size_box_w            (sm_perfroll_size_box_w),       // 6
     m_measure_length        (0),
     m_beat_length           (0),
     m_old_progress_ticks    (0),
@@ -126,18 +154,20 @@ perfroll::perfroll
     m_sequence_offset       (0),
     m_roll_length_ticks     (0),
     m_drop_tick             (0),
-    m_drop_tick_trigger_offset (0),
+    m_drop_tick_offset      (0),
     m_drop_sequence         (0),
     m_sequence_max          (c_max_sequence),
     m_sequence_active       (),                             // [c_max_sequence]
-    m_fruity_interaction    (),
-    m_seq24_interaction     (),
-    m_interaction
-    (
-        rc().interaction_method() == e_seq24_interaction ?
-            dynamic_cast<AbstractPerfInput &>(m_seq24_interaction) :
-            dynamic_cast<AbstractPerfInput &>(m_fruity_interaction)
-    ),
+#ifdef SEQ64_SONG_BOX_SELECT
+    m_old                   (),                             // seq64::rect
+    m_selected              (),                             // seq64::rect
+    m_box_select            (false),
+    m_box_select_low        (SEQ64_NULL_SEQUENCE),
+    m_box_select_high       (SEQ64_NULL_SEQUENCE),
+    m_last_tick             (0),
+    m_scroll_offset_x       (0),        // m_4bar_offset already in place!
+    m_scroll_offset_y       (0),
+#endif
     m_moving                (false),
     m_growing               (false),
     m_grow_direction        (false)
@@ -181,6 +211,7 @@ perfroll::set_ppqn (int ppqn)
         m_ticks_per_bar = m_ppqn * m_divs_per_beat;             /* 16 */
         m_background_x = (m_ppqn * 4 * 16) / c_perf_scale_x;
         m_perf_scale_x = m_zoom * m_ppqn / SEQ64_DEFAULT_PPQN;
+        m_w_scale_x = sm_perfroll_size_box_click_w * m_perf_scale_x;
         if (m_perf_scale_x == 0)
             m_perf_scale_x = 1;
     }
@@ -199,6 +230,9 @@ perfroll::change_horz ()
     long current_offset = long(m_hadjust.get_value()) * m_ticks_per_bar;
     if (m_4bar_offset != current_offset)
     {
+#ifdef SEQ64_SONG_BOX_SELECT
+        m_scroll_offset_x = int(m_hadjust.get_value()) / m_zoom;
+#endif
         m_4bar_offset = current_offset;
         enqueue_draw();
     }
@@ -223,6 +257,9 @@ perfroll::change_vert ()
     {
         m_drop_y += (m_sequence_offset - vvalue) * m_names_y;
         m_sequence_offset = vvalue;
+#ifdef SEQ64_SONG_BOX_SELECT
+        m_scroll_offset_y = int(m_vadjust.get_value()) * m_names_y;
+#endif
         enqueue_draw();
     }
 }
@@ -251,8 +288,8 @@ perfroll::init_before_show ()
  *      Ignoring the numbers, the units come out to:
  *
 \verbatim
-                pixels * ticks / pixel
-        bars = --------------------------------
+                  pixels * ticks / pixel
+        bars = ----------------------------
                 ticks / beat * beats / bar
 \endverbatim
  *
@@ -351,7 +388,7 @@ perfroll::fill_background_pixmap ()
 
         int beat_x = i * m_beat_length / m_perf_scale_x;
         draw_line(m_background, beat_x, 0, beat_x, m_names_y);
-        if (m_beat_length < m_ppqn / 2)             /* jump 2 if 16th notes   */
+        if (m_beat_length < m_ppqn / 2)             /* jump 2 if 16th notes */
             i += (m_ppqn / m_beat_length);
         else
             ++i;
@@ -360,7 +397,7 @@ perfroll::fill_background_pixmap ()
 }
 
 /**
- *  This function sets the m_snap, m_measure_length, and m_beat_length
+ *  This function sets the m_snap_x, m_measure_length, and m_beat_length
  *  members directly from the function parameters, which are in units of
  *  pulses (sometimes misleadingly called "ticks".)
  *
@@ -384,7 +421,7 @@ perfroll::fill_background_pixmap ()
 void
 perfroll::set_guides (int snap, int measure, int beat)
 {
-    m_snap = snap;
+    m_snap_x = snap;
     m_measure_length = measure;
     m_beat_length = beat;
     if (is_realized())
@@ -405,6 +442,10 @@ perfroll::set_guides (int snap, int measure, int beat)
 void
 perfroll::enqueue_draw ()
 {
+#ifdef SEQ64_SONG_BOX_SELECT
+    if (m_box_select)
+        draw_selection_on_window();
+#endif
     m_parent.enqueue_draw();
 }
 
@@ -423,23 +464,15 @@ perfroll::enqueue_draw ()
  *  perform::get_tick() with perform::get_start_tick() and
  *  perform::get_last_tick() [a new experimental function].  But those
  *  replacements here always return 0, even as perform::get_tick() increases.
- *  Now were are trying a newer function, perform::get_max_tick(), which seems
- *  to do the trick for resuming (instead of rewinding) the progress bar.
- *  It's still a tiny bit laggy, so we have to find a faster way to get the
- *  maximum.  (Note that the draw_progress function is called at every
- *  timeout, that is, constantly.)
- *
- *  The perform::get_max_tick() call doesn't work with JACK: the progress bar
- *  rewinds to the beginning when playback is paused, though it does resume
- *  where it left off.  It also may cause the progress bar to backtrack
- *  through any gap.  Let's restore the get_tick() call.
+ *  (Note that the draw_progress function is called at every timeout, that is,
+ *  constantly.)
  */
 
 void
 perfroll::draw_progress ()
 {
     midipulse tick = perf().get_tick();
-    midipulse tick_offset = m_4bar_offset;              //  * m_ticks_per_bar;
+    midipulse tick_offset = m_4bar_offset;
     int progress_x = (tick - tick_offset) / m_perf_scale_x;
     int old_progress_x = (m_old_progress_ticks - tick_offset) / m_perf_scale_x;
     if (usr().progress_bar_thick())
@@ -590,12 +623,12 @@ perfroll::auto_scroll_horz ()
 void
 perfroll::draw_sequence_on (int seqnum)
 {
-    if (perf().is_active(seqnum))
+    sequence * seq = perf().get_sequence(seqnum);
+    if (not_nullptr(seq))
     {
-        midipulse tick_offset = m_4bar_offset;          //  * m_ticks_per_bar;
+        midipulse tick_offset = m_4bar_offset;      //  * m_ticks_per_bar;
         midipulse x_offset = tick_offset / m_perf_scale_x;
         m_sequence_active[seqnum] = true;
-        sequence * seq = perf().get_sequence(seqnum);
         seq->reset_draw_trigger_marker();
         seqnum -= m_sequence_offset;
 
@@ -617,23 +650,30 @@ perfroll::draw_sequence_on (int seqnum)
                 int h = m_names_y - 2;                  // - 4
                 x -= x_offset;                  /* adjust to screen coords  */
 
-                /*
-                 * Items drawn:
+                /**
+                 * Items drawn on the Song editor piano roll:
                  *
-                 *  1. Main trigger box
-                 *  2. Trigger outline
-                 *  3. The left hand side of the little sequence grab handle
-                 *  4. Its right side.
+                 *  -# Main trigger box (also called a "segment") background.
+                 *  -# Trigger outline (the rectangle around a "segment").
+                 *  -# The left hand side little sequence grab handle,
+                 *     or segment handle.
+                 *  -# The right-side segment handle.
+                 *
+                 *  printf
+                 *  (
+                 *      "seq %d trigger: %s\n",
+                 *      seqnum, selected ? "selected" : "unselected"
+                 *  );
                  */
 
-                draw_rectangle_on_pixmap
+                draw_rectangle_on_pixmap        /* fill segment background  */
                 (
                     selected ? grey() : white_paint(), x, y, w, h
                 );
                 draw_rectangle_on_pixmap(black_paint(), x, y, w, h, false);
-                draw_rectangle_on_pixmap
+                draw_rectangle_on_pixmap        /* draw the segment handle  */
                 (
-                    dark_cyan(),                /* try instead of black()   */
+                    dark_cyan(),                /* instead of black()       */
                     x, y, m_size_box_w, m_size_box_w, false
                 );
                 draw_rectangle_on_pixmap        /* color set previous call  */
@@ -660,8 +700,7 @@ perfroll::draw_sequence_on (int seqnum)
                         );
                     }
 
-                    int low_note;                       // for side-effect
-                    int high_note;                      // ditto
+                    int low_note, high_note;            // for side-effects
                     bool have_notes = seq->get_minmax_note_events
                     (
                         low_note, high_note             // side-effects
@@ -745,7 +784,7 @@ perfroll::draw_sequence_on (int seqnum)
                             if (tick_f_x >= x && tick_s_x <= x + w)
                             {
                                 int ny = y + note_y;
-                                Color paint = transposable ? black() : red();
+                                Color paint = transposable ? black_paint() : red();
                                 if (dt == DRAW_TEMPO)
                                 {
                                     set_line(Gdk::LINE_SOLID, 2);
@@ -783,7 +822,7 @@ perfroll::draw_sequence_on (int seqnum)
 
 void perfroll::draw_background_on (int seqnum)
 {
-    midipulse tick_offset = m_4bar_offset ;             // * m_ticks_per_bar;
+    midipulse tick_offset = m_4bar_offset;              // * m_ticks_per_bar;
     long first_measure = tick_offset / m_measure_length;
     long last_measure = first_measure +
         (m_window_x * m_perf_scale_x / m_measure_length) + 1;
@@ -821,8 +860,7 @@ perfroll::redraw_dirty_sequences ()
         int seq = y + m_sequence_offset;
         if (seq < m_sequence_max && perf().is_dirty_perf(seq))  /* see note */
         {
-            draw_background_on(seq);
-            draw_sequence_on(seq);
+            draw_sequence(seq);
             draw = true;
         }
     }
@@ -841,7 +879,7 @@ perfroll::redraw_dirty_sequences ()
  */
 
 void
-perfroll::draw_drawable_row (long y)
+perfroll::draw_drawable_row (int y)
 {
     if (y >= 0)             /* make sure user didn't scroll up off window */
     {
@@ -850,6 +888,46 @@ perfroll::draw_drawable_row (long y)
     }
 }
 
+#ifdef SEQ64_SONG_BOX_SELECT
+
+/**
+ *  Draws the current mouse-selection box on the main perfroll window.  Note
+ *  the parameters of draw_drawable(), which we need to be sure of to draw
+ *  thicker boxes.
+ *
+ *      -   x and y position of rectangle to draw
+ *      -   x and y position in drawable where rectangle should be drawn
+ *      -   width and height of rectangle to draw
+ *
+ *  A final parameter of false draws an unfilled rectangle.  Orange makes it a
+ *  little more clear that we're selecting, I think.  We also want to try to
+ *  thicken the lines somehow.
+ *
+ *  Compare this function to seqroll's more sophisticated version.
+ */
+
+void
+perfroll::draw_selection_on_window ()
+{
+    const int thickness = 1;                    /* normally 1               */
+    int x = 0, y = 0, w = 0, h = 0;             /* used throughout          */
+    set_line(Gdk::LINE_SOLID, thickness);       /* set_line_attributes()    */
+    if (selecting())
+    {
+        m_old.get(x, y, w, h);                      /* get rectangle        */
+        draw_drawable(x, y, x, y, w + 1, h + 1);    /* erase old rectangle  */
+        m_selected.get(x, y, w, h);
+    }
+
+#ifdef SEQ64_USE_BLACK_SELECTION_BOX
+    draw_rectangle(black_paint(), x, y, w, h, false);
+#else
+    draw_rectangle(dark_orange(), x, y, w, h, false);
+#endif
+}
+
+#endif  // SEQ64_SONG_BOX_SELECT
+
 /**
  *  Provides a very common sequence of calls used in perfroll_input.
  *
@@ -857,13 +935,32 @@ perfroll::draw_drawable_row (long y)
  *  was originally selected. The call below to draw_drawable_row() will have
  *  the wrong y location and un-select will not occur if the user scrolls the
  *  track up or down to a new y location, if not adjusted.
+ *
+ *  For the box set/selections, we create a perform::SeqOperation functor by
+ *  binding &perfroll::draw_sequence() to this object and passing it to
+ *  perform::selection_operation().  The whole set of operations replaces the
+ *  single operation of the "drop" sequence.
+ *
+ * Note:
+ *
+ *  We could bind additional parameters as needed, either as place-holders or
+ *  constant parameter values.
  */
 
 void
 perfroll::draw_all ()
 {
-    draw_background_on(m_drop_sequence);
-    draw_sequence_on(m_drop_sequence);
+
+#ifdef SEQ64_SONG_BOX_SELECT
+    perform::SeqOperation f = std::bind
+    (
+        &perfroll::draw_sequence, std::ref(*this), std::placeholders::_1
+    );
+    perf().selection_operation(f);          /* works with sets of sequences */
+#else
+    (void) draw_sequence(m_drop_sequence);  /* draw seq background & events */
+#endif
+
     draw_drawable_row(m_drop_y);
 }
 
@@ -875,29 +972,45 @@ void
 perfroll::split_trigger (int seqnum, midipulse tick)
 {
     perf().split_trigger(seqnum, tick);     /* consolidates perform actions */
-    draw_background_on(seqnum);
-    draw_sequence_on(seqnum);
+    (void) draw_sequence(seqnum);           /* draw seq background & events */
     draw_drawable_row(m_drop_y);
 }
 
 /**
  *  This function performs a 'snap' action on x.
  *
- *      -   m_snap = number pulses to snap to
+ *      -   m_snap_x = number pulses to snap to
  *      -   m_perf_scale_x = number of pulses per pixel
  *
- *  Therefore mod = m_snap/m_perf_scale_x equals the number pixels to snap
+ *  Therefore mod = m_snap_x/m_perf_scale_x equals the number pixels to snap
  *  to.
+ *
+ * \param [out] x
+ *      The destination for the x-snap calculation.
  */
 
 void
 perfroll::snap_x (int & x)
 {
-    int mod = m_snap / m_perf_scale_x;
+    int mod = m_snap_x / m_perf_scale_x;
     if (mod <= 0)
         mod = 1;
 
     x -= (x % mod);
+}
+
+/**
+ *  This function performs a 'snap' action on y.  We don't do vertical
+ *  zoom, so this function is simpler than snap_x().
+ *
+ * \param [out] y
+ *      The destination for the y-snap calculation.
+ */
+
+void
+perfroll::snap_y (int & y)
+{
+    y -= (y % m_names_y);
 }
 
 /**
@@ -956,8 +1069,8 @@ perfroll::convert_xy (int x, int y, midipulse & d_tick, int & d_seq)
  *  Implements the horizontal zoom feature.
  *
  * \change ca 2016-04-05
- *      The initial zoom value is c_perf_scale_x (32).  We allow it to 
- *      range from 1 to 128, for now.  Smaller values zoom in.
+ *      The initial zoom value is c_perf_scale_x (32).  We allow it to range
+ *      from 1 to 128, for now.  Smaller values zoom in.
  */
 
 void
@@ -990,7 +1103,6 @@ perfroll::set_zoom (int z)
  *      adjusted by zoom with a substituted variable. Not sure if there is any
  *      benefit to doing the adjustment...  Perhaps a small benefit in speed?
  *      Maybe FIXME if really, really bored...
- *
  */
 
 void
@@ -1041,10 +1153,7 @@ perfroll::on_expose_event (GdkEventExpose * ev)
     {
         int seq = y + m_sequence_offset;
         if (seq < m_sequence_max)           /* see note in banner */
-        {
-            draw_background_on(seq);
-            draw_sequence_on(seq);
-        }
+            (void) draw_sequence(seq);
     }
     m_window->draw_drawable
     (
@@ -1055,9 +1164,9 @@ perfroll::on_expose_event (GdkEventExpose * ev)
 }
 
 /**
- *  This callback function handles a button press by forwarding it to the
- *  interaction object's button-press function.  This gives us Seq24
- *  versus Fruity behavior.
+ *  This callback function handles the follow-on work of a button press, and
+ *  is called by overridden versions such as Seq24PerfInput ::
+ *  on_button_press_event()
  *
  *  One minor issue:  Fruity behavior doesn't yet provide the keystroke
  *  behavior we now handle for the Seq24 mode of operation.
@@ -1066,6 +1175,7 @@ perfroll::on_expose_event (GdkEventExpose * ev)
 bool
 perfroll::on_button_press_event (GdkEventButton * ev)
 {
+
 #ifdef USE_UNNECESSARY_TRANSPORT_FOLLOW_CALLBACK
 
     /*
@@ -1083,10 +1193,7 @@ perfroll::on_button_press_event (GdkEventButton * ev)
 
 #endif
 
-    bool result = m_interaction.on_button_press_event(ev, *this);
-    if (result)
-        perf().modify();
-
+    bool result = gui_drawingarea_gtk2::on_button_press_event(ev);
     enqueue_draw();
     return result;
 }
@@ -1095,18 +1202,12 @@ perfroll::on_button_press_event (GdkEventButton * ev)
  *  This callback function handles a button release by forwarding it to the
  *  interaction object's button-release function.  This gives us Seq24
  *  versus Fruity behavior.
- *
- * \todo
- *      We seem to be hitting this button event on any click in the perfroll
- *      itself.
  */
 
 bool
 perfroll::on_button_release_event (GdkEventButton * ev)
 {
-    bool result = m_interaction.on_button_release_event(ev, *this);
-    if (result)
-        perf().modify();
+    bool result = gui_drawingarea_gtk2::on_button_release_event(ev);
 
 #ifdef USE_UNNECESSARY_TRANSPORT_FOLLOW_CALLBACK
     if (m_trans_button_press)
@@ -1178,17 +1279,16 @@ perfroll::on_scroll_event (GdkEventScroll * ev)
 
 /**
  *  Handles motion notification by forwarding it to the interaction
- *  object's motion-notification callback function.
+ *  object's motion-notification callback function.  Actually, this is
+ *  backwards; this function is called within the derived object's override.
  */
 
 bool
 perfroll::on_motion_notify_event (GdkEventMotion * ev)
 {
-    bool result = m_interaction.on_motion_notify_event(ev, *this);
-    if (result)
-    {
-        enqueue_draw();     /* put in if() to reduce flickering */
-    }
+    enqueue_draw();                 /* put in if() to reduce flickering */
+
+    bool result = gui_drawingarea_gtk2::on_motion_notify_event(ev);
     return result;
 }
 
@@ -1248,22 +1348,14 @@ perfroll::on_key_press_event (GdkEventKey * ev)
     }
 
     /*
-     * Add this call to try to make seqroll and perfroll act the same for
-     * start/stop/play.  Doesn't work, but doesn't break anything.  Turns out
-     * perfedit handles this event.  Added the "true" parameter to force
-     * song mode when starting from perfedit.
+     *  Add this call to try to make seqroll and perfroll act the same for
+     *  start/stop/play.  Doesn't work, but doesn't break anything.  Turns out
+     *  perfedit handles this event.  Added the "true" parameter to force song
+     *  mode when starting from perfedit.
      */
 
     bool result = perf().playback_key_event(k, true);
-    if (result)
-    {
-        /*
-         * How can we restore the tick at which the song paused?
-         *
-         * perf().set_start_tick(perf().get_jack_tick());
-         */
-    }
-    else
+    if (! result)
         result = perf().perfroll_key_event(k, m_drop_sequence);
 
     if (result)
@@ -1340,12 +1432,12 @@ perfroll::on_key_press_event (GdkEventKey * ev)
             {
                 if (ev->keyval == SEQ64_p)
                 {
-                    m_interaction.activate_adding(true, *this);
+                    activate_adding(true);
                     result = true;
                 }
                 else if (ev->keyval == SEQ64_x)     /* "x-scape" the mode   */
                 {
-                    m_interaction.activate_adding(false, *this);
+                    activate_adding(false);
                     result = true;
                 }
                 else if (ev->keyval == SEQ64_0)     /* reset to normal zoom */
@@ -1360,21 +1452,15 @@ perfroll::on_key_press_event (GdkEventKey * ev)
                 }
                 else if (ev->keyval == SEQ64_Left)
                 {
-                    if (m_interaction.is_adding())
-                    {
-                        result = m_interaction.handle_motion_key(true, *this);
-                        if (result)
-                            perf().modify();
-                    }
+                    result = handle_motion_key(true);
+                    if (result)
+                        perf().modify();
                 }
                 else if (ev->keyval == SEQ64_Right)
                 {
-                    if (m_interaction.is_adding())
-                    {
-                        result = m_interaction.handle_motion_key(false, *this);
-                        if (result)
-                            perf().modify();
-                    }
+                    result = handle_motion_key(false);
+                    if (result)
+                        perf().modify();
                 }
                 else if (ev->keyval == SEQ64_Up)    /* vertical movement    */
                 {

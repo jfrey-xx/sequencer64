@@ -1,12 +1,13 @@
-README for Sequencer64 0.94.0 (Native JACK, CLI, multiple sets, varisets, tempo)
+README for Sequencer64 0.94.6 (Native JACK, CLI, multiple sets, varisets, tempo)
 Chris Ahlstrom
-2015-09-10 to 2017-09-06
+2015-09-10 to 2018-02-18
 
-Sequencer64 is a reboot of seq24.  It extends seq24 in features and bug fixes;
-the heart of seq24 remains intact.  See the screenshot.  It is an old friend,
-and maintains some backward-compatibility with the --legacy option.  See
-https://github.com/ahlstromcj/sequencer64-doc.git.  For prebuilt Debian
-packages, see https://github.com/ahlstromcj/sequencer64-packages.git.
+Sequencer64 is a reboot of seq24, extending seq24 in features and bug fixes;
+the heart of seq24 remains intact.  It is an old friend, and maintains some
+backward-compatibility with the --legacy option.  A "book" about seq64 can be
+found at https://github.com/ahlstromcj/sequencer64-doc.git.  Prebuilt Debian
+packages are at https://github.com/ahlstromcj/sequencer64-packages.git.  A
+number of versions are supported; here are the two main ones:
 
 Native JACK support: Seq64rtmidi/seq64
 
@@ -17,84 +18,117 @@ Native JACK support: Seq64rtmidi/seq64
 
 GUI-less native JACK support: Seq64rtmidi/seq64cli
 
-    The JACK version without a GUI.  Currently controlled only via MIDI
-    control events (start and stop events must be set up), it relies on a good
-    working configuration generated via the GUI or edited by hand.  Currently
-    the only way to load a MIDI file is as the last argument on the command
-    line.  We hope to add an OSC harness and command application eventually.
-    Supports a "daemonize" option and dumping status to a log-file in the
+    The JACK version without a GUI.  Currently controlled via MIDI control
+    events (start/stop events must be set up), it relies on a good working
+    configuration generated via the GUI or edited by hand.  Currently the only
+    way to load a MIDI file is as the last argument on the command line.  We
+    hope to add an OSC harness and command application eventually.  Supports a
+    "daemonize" option and dumping status to a log-file in the
     user-configuration directory.
 
-With the big version jump from 0.9 to 0.90, the install process has changed.
-See the INSTALL file.
+See the INSTALL file for build-from-source instructions.
 
+Recent changes:
+
+    -   Version 0.94.5:
+        -   Added the ability to scale the main window from 1.0 to 3.0 times
+            its normal size.  Has issues, but makes buttons bigger and the
+            layout easier to see from a distance.
+        -   Fixed issues with parsing the -o/--options and adding a file to
+            open as the last command-line argument.
+        -   Fixed issues #92 and #94, and other issues with multi-wid set
+            selection.
+        -   Adding events in the seqedit event pane did not work. Fixed.
+        -   Importing a file wiped out existing set notes.  Fixed.
+    -   Version 0.94.4:
+        -   Fixed some mismanagement of the changing image for the transpose
+            and play buttons that caused segfaults on some systems.
+        -   Fixed build errors with --enable-mainscroll (an unfinished feature).
+        -   The LFO window button now toggles that window.
+        -   Added a pattern editor event button showing only existing events.
+        -   Fleshed out the implementation of MIDI control for sequence record,
+            quantize record, and thru.
+        -   The configure script is now removed (for reconstruction) after a
+            --full-clean bootstrap.
+        -   Fixed issues with changing the screenset via keystroke,
+            spinbutton, and MIDI control event.
+    -   Version 0.94.3:
+        -   Changed SeqSpec proprietary track number from 0x7777 to 0x3FFF.
+            This will change existing files silently to store the new track
+            number.
+        -   Added a File / Export option to write a version of a file without
+            Sequencer64-specific SeqSpecs.
+        -   Unhandled meta events are now preserved instead of being sent to
+            the bit bucket.  They are saved along with the rest of the data.
+        -   The sequence number is now shown in the pattern and event editors.
+        -   Minor fixes and improvements to fruity interaction mode, plus
+            fixing GitHub issues #90 and #105.  Also show fruity mode
+            indicator in the pattern editor.
+    -   Version 0.94.2:
+        -   Fixed issue #124, Stop button not resetting the progress bar.
+        -   Improved the panic function, and fixed an issue with it when JACK
+            native mode is in force.
+        -   The "user" definitions for port names are now applied to the
+            virtual (manual) output ports by the "-m -R" options.  Note that
+            input ports no longer show the "user" definitions.
+        -   Installation now adds files to /usr/local/share/sequencer64-0.94.
+    -   Version 0.94.1:
+        -   Fixed a side-effect of code that kept resetting the tick position
+            to 0, preventing progress if JACK transport was active.
+        -   Fixed the MIDI clock issue #123.
     -   Version 0.94.0:
-        -   Windows and Linux support for a Qt5 user-interface.  Still a long
-            way to go on this one.
-    -   Version 0.93.4:
-        -   Merging a miniature version of the PortMIDI library, called
-            "portmini", into the code base ("windows" branch).
-        -   Building for Windows, still in progress in the "windows" branch.
-            Currently supports only the command-line build (bootstrap option
-            -win).
-    -   Version 0.93.3:
-        -   Fixes to issue #105 relating to fruity interactions.
-        -   Made it obvious when a nute-group cannot be supported due to
-            larger set sizes with the --option sets=RxC setting.
-        -   Desktop-settings updates.
-        -   Other fixes to unreported problems we found.
-    -   Version 0.93.2:
-        -   Tweaking the sizing of main window to avoid bottom clipping found
-            with some Gnome themes.  Just fudging it, unfortunately.
-        -   Fixed issue #103 which wrote global tempo bytes backwards.
-        -   Fixed issue #106, an off-by-one error in calculating measures that
-            causes edited patterns to grow.
-    -   Version 0.93.1:
-        -   Version 0.93.1 supports the management of a native MIDI tempo
-            track, adhering to MIDI specs.
-        -   Tempo events are mostly editable like normal events.  No separate
-            "tempo track" editor needed at present.
-    -   Version 0.93.0:
-        -   Initial support for the tempo track.  It currently includes making
-            Meta events have full support in Sequencer64, including in the
-            event editor (only Set Tempo and Time Signature are fully
-            supported at this time, and share code with SysEx support).
-        -   Merged pull request #95 of user layk to fix an issue with
-            manipulating long notes while playing.
-        -   Fixes a bug where the event editor is not updating properly.
-            A long-time regression!
-    -   Version 0.92.0:
-        -   Added support for variable set-size, from the default
-            4x8 (rows x columns) to 8x12.  Can be combined with multi-wid.
-        -   Up to 96 hot-keys via a shift/double-shift feature.
-    -   Version 0.91.0:
-        -   Added option to show a grid of sets, with one set spinner per
-            main window.  Set from command-line or the "usr" configuration.
+        -   Additions from the Oli Kester project, "Kepler34".
+            -   Panic-button to stop everything!
+            -   Recent-files menu entries; logs full path-names, but shows
+                only the base name.  Has Gtk issue with using underscore as
+                an accelerator.
+            -   Support for multiple trigger selection in the Song Editor, but
+                incomplete and currently disabled.
+            -   Initial support for Song Recording, in Live mode, which writes
+                the live muting changes as triggers to the Song Editor.
+                Also has a song-recording snap mode.
+            -   A one-shot queuing mode is now provided.  It works like
+                queueing, but unqueues the pattern after one playback.
+        -   Issue #122 bad alsamidi build fixed.
+        -   Bug fixes to unreported issues:
+            -   Seq64, when not JACK Transport Master, would not play and
+                caused other JACK clients to not play either.
+            -   Somehow the "night mode" was painting notes black in the
+                perfroll.
+            -   Adding a set-note caused a prompt for saving even with no
+                changes.
+            -   Major major fixes for the "user" configuration file, and 
+                a new "[comments]" section for it.  Also fixed ancient bug
+                in populating the seqedit event menu, and no longer apply
+                the "user" devices to the input port.
+        -   The ability to toggle the time display between "B:B:T" and
+            "H:M:S" has been added.
+    -   Version 0.93.5:
+        -   Fixes an issue where incoming Active Sensing events are treated
+            incorrectly.  Also update handling for similar events.
+        -   Added configure and helper files to the official checkout so that
+            users do not have to install so much dev software.
+        -   Changed "-v" to be a new "--verbose" option for trouble-shooting.
+        -   Fixed the setting of the "stazed" filter-by-channel functionality,
+            which was disabled.
+        -   Added (WE HOPE) the missing start/stop/continue functionality in
+            the "rtmidi" ALSA and JACK implementations.
+        -   Some improvements to set_status() functions.
+        -   Minor cleanup, and investigation into an issue with triggers and
+            the pause functionality in Song mode.
     -   For more version information, see the NEWS file.
 
-This package is currently oriented to developers.  It is fairly well
-organized, fairly well documented, and less mysterious (to us, anyway) than
-before.  Please see the INSTALL file for a brief description of installation.
+This package is oriented to developers and users who do not mind building from
+source, with a little help.  It is fairly well organized and well documented.
+Please see the INSTALL file for a brief description of installation.
 
-Initial work/thought/documentation started in July of 2015.
+Initial work/thought/documentation started in July of 2015, when I was laid
+up after some old-man surgery.
 
 See the ROADMAP file for more information and a kind of TODO list.  Also see
-contrib/notes/bugs_to_investigate.  Sequencer64 is well-documented by the
-following project, which provides a 180+-page PDF file and its LaTeX source
-code:
+contrib/notes/bugs_to_investigate.  Sequencer64 is documented by the following
+project, a 190+-page PDF file and its LaTeX source code:
 
    https://github.com/ahlstromcj/sequencer64-doc.git
-
-Legacy Sequencer64: Sequencer64/sequencer64
-
-    This is the original (ALSA) version of the project, which we are
-    preserving until the bug reports for the native-JACK version slow down to
-    a trickle.
-
-PortMIDI: Seq64portmidi/seq64portmidi
-
-    Builds and runs via the portmidi library in a Linux distro.  Has issues
-    and is deprecated for Linux, but might be used in the upcoming Windows
-    implementation.
 
 # vim: sw=4 ts=4 wm=4 et ft=sh

@@ -28,7 +28,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-30
- * \updates       2017-08-14
+ * \updates       2018-02-01
  * \license       GNU GPLv2 or above
  *
  *  The functions add_list_var() and add_long_list() have been replaced by
@@ -41,14 +41,14 @@
 #include <string>
 #include <stack>
 
-#include "seq64_features.h"             /* various feature #defines */
-#include "calculations.hpp"             /* measures_to_ticks()      */
-#include "event_list.hpp"               /* seq64::event_list        */
-#include "midi_container.hpp"           /* seq64::midi_container    */
-#include "midibus.hpp"                  /* seq64::midibus           */
-#include "mutex.hpp"                    /* seq64::mutex, automutex  */
-#include "scales.h"                     /* key and scale constants  */
-#include "triggers.hpp"                 /* seq64::triggers, etc.    */
+#include "seq64_features.h"             /* various feature #defines     */
+#include "calculations.hpp"             /* measures_to_ticks()          */
+#include "event_list.hpp"               /* seq64::event_list            */
+#include "midi_container.hpp"           /* seq64::midi_container        */
+#include "midibus.hpp"                  /* seq64::midibus               */
+#include "mutex.hpp"                    /* seq64::mutex, automutex      */
+#include "scales.h"                     /* key and scale constants      */
+#include "triggers.hpp"                 /* seq64::triggers, etc.        */
 
 /**
  *  Enables the Stazed/Seq32 code for adding overwrite and expand looping
@@ -94,6 +94,32 @@ enum draw_type_t
     DRAW_NOTE_OFF,          /**< For finishing the drawing of a note.       */
     DRAW_TEMPO              /**< For drawing tempo meta events.             */
 };
+
+#ifdef USE_SEQUENCE_EDIT_MODE
+
+/**
+ *  Provides two editing modes for a sequence.
+ *  A feature adapted from Kepler34.
+ */
+
+enum edit_mode_t
+{
+    EDIT_MODE_NOTE,         /**< Edit as Note input, the normal edit mode.  */
+    EDIT_MODE_DRUM          /**< Edit as Drum input, using short notes.     */
+};
+
+#endif  // USE_SEQUENCE_EDIT_MODE
+
+/**
+ *  A new type to support the concept of sequence color.  This feature cannot
+ *  be used in the current versions of Sequencer64, because their color is
+ *  determined by the font bitmap.  The color will be a number pointing to an
+ *  RGB entry in a palette.  A future feature, we're making room for it here.
+ *
+ *  TODO:  Add a value for an invalid color code.
+ */
+
+typedef unsigned char seq_colour_t;
 
 #ifdef SEQ64_STAZED_EXPAND_RECORD
 
@@ -179,7 +205,7 @@ private:
     event_list m_events;
 
     /**
-     *  The triggers associated with the sequence, used in the
+     *  Holds the list of triggers associated with the sequence, used in the
      *  performance/song editor.
      */
 
@@ -250,7 +276,8 @@ private:
     /**
      *  Contains the proper MIDI channel for this sequence.  However, if this
      *  value is EVENT_NULL_CHANNEL (0xFF), then this sequence is an SMF 0
-     *  track, and has no single channel.
+     *  track, and has no single channel.  Please note that this is the output
+     *  channel.
      */
 
     midibyte m_midi_channel;
@@ -280,24 +307,26 @@ private:
 #endif
 
     /**
-     *  Provides a member to hold the polyphonic step-edit note counter.
+     *  Provides a member to hold the polyphonic step-edit note counter.  We
+     *  will never come close to the short limit of 32767.
      */
 
-    int m_notes_on;
+    short m_notes_on;
 
     /**
      *  Provides the master MIDI buss which handles the output of the sequence
      *  to the proper buss and MIDI channel.
      */
 
-    mastermidibus * m_masterbus;
+    mastermidibus * m_master_bus;
 
     /**
      *  Provides a "map" for Note On events.  It is used when muting, to shut
-     *  off the notes that are playing.
+     *  off the notes that are playing. The number of notes playing will never
+     *  come close to the short limit of 32767.
      */
 
-    int m_playing_notes[SEQ64_MIDI_NOTES_MAX];
+    short m_playing_notes[SEQ64_MIDI_NOTES_MAX];
 
     /**
      *  Indicates if the sequence was playing.
@@ -334,6 +363,66 @@ private:
      */
 
     bool m_queued;
+
+#ifdef SEQ64_SONG_RECORDING
+
+    /**
+     *  A member from the Kepler34 project to indicate we are in one-shot mode
+     *  for triggering.  Set to false whenever playing-state changes.  Used in
+     *  sequence :: play_queue() to maybe play from the one-shot tick, then
+     *  toggle play and toggle queuing before playing normally.
+     *
+     *  One-shot mode is entered when the MIDI control c_status_oneshot event
+     *  is received.  Kepler34 reserves the period '.' to initiate this event.
+     */
+
+    bool m_one_shot;
+
+    /**
+     *  A Member from the Kepler34 project, set in sequence ::
+     *  toggle_one_shot() to m_last_tick adjusted to the length of the
+     *  sequence..  Compare this member to m_queued_tick.
+     */
+
+    midipulse m_one_shot_tick;
+
+    /**
+     *  Indicates if we have turned off from a snap operation.
+     */
+
+    bool m_off_from_snap;
+
+    /**
+     *  Used to temporarily block Song Mode events while recording new
+     *  ones.  Set to false if at a trigger transition in trigger playback.
+     *  Otherwise, triggers are allow to be processed.  Turned off when
+     *  song-recording stops.
+     */
+
+    bool m_song_playback_block;
+
+    /**
+     *  Used to keep on blocking Song Mode events while recording new ones.
+     *  Allows recording a live performance, by storing the sequence triggers.
+     *  Adapted from Kepler34.
+     */
+
+    bool m_song_recording;
+
+    /**
+     *  This value indicates that the following feature is active: the number
+     *  of tick to snap recorded improvisations.
+     */
+
+    bool m_song_recording_snap;
+
+    /**
+     *  Saves the tick from when we started recording live song data.
+     */
+
+    midipulse m_song_record_tick;
+
+#endif  // SEQ64_SONG_RECORDING
 
 #ifdef SEQ64_STAZED_EXPAND_RECORD
 
@@ -395,7 +484,7 @@ private:
      */
 
     midipulse m_last_tick;          /**< Provides the last tick played.     */
-    midipulse m_queued_tick;        /**< Provides the next tick to play?    */
+    midipulse m_queued_tick;        /**< Provides the tick for queuing.     */
     midipulse m_trigger_offset;     /**< Provides the trigger offset.       */
 
     /**
@@ -411,7 +500,7 @@ private:
      *  on a global constant value.
      */
 
-    int m_ppqn;
+    unsigned short m_ppqn;
 
     /**
      *  A new member so that the sequence number is carried along with the
@@ -419,7 +508,28 @@ private:
      *  function.
      */
 
-    int m_seq_number;
+    short m_seq_number;
+
+#ifdef USE_SEQUENCE_COLOR
+
+    /**
+     *  Reserved for a potential feature from the Kepler34 project.  It will
+     *  be an index into a palette.
+     */
+
+    seq_colour_t m_seq_colour;
+
+#endif  // USE_EQUENCE_COLOR
+
+#ifdef USE_SEQUENCE_EDIT_MODE
+
+    /**
+     * A feature adapted from Kepler34.
+     */
+
+    edit_mode_t m_seq_edit_mode;
+
+#endif  // USE_SEQUENCE_EDIT_MODE
 
     /**
      *  Holds the length of the sequence in pulses (ticks).  This value should
@@ -443,7 +553,7 @@ private:
      *  the user-interface.
      */
 
-    int m_time_beats_per_measure;
+    unsigned short m_time_beats_per_measure;
 
     /**
      *  Provides with width of a beat.  Defaults to 4, which means the beat is
@@ -452,7 +562,7 @@ private:
      *  user-interface.
      */
 
-    int m_time_beat_width;
+    unsigned short m_time_beat_width;
 
     /**
      *  Augments the beats/bar and beat-width with the additional values
@@ -462,7 +572,7 @@ private:
      *  our hymne.mid example.
      */
 
-    int m_clocks_per_metronome;
+    int m_clocks_per_metronome;     /* make it a short? */
 
     /**
      *  Augments the beats/bar and beat-width with the additional values
@@ -472,7 +582,7 @@ private:
      *  allow this to be changed.
      */
 
-    int m_32nds_per_quarter;
+    int m_32nds_per_quarter;        /* make it a short? */
 
     /**
      *  Augments the beats/bar and beat-width with the additional values
@@ -486,10 +596,11 @@ private:
     long m_us_per_quarter_note;
 
     /**
-     *  The volume to be used when recording.
+     *  The volume to be used when recording.  It can range from 0 to 127,
+     *  or be set to SEQ64_PRESERVE_VELOCITY (-1).
      */
 
-    int m_rec_vol;
+    short m_rec_vol;
 
     /**
      *  The Note On velocity used.  Currently set to
@@ -498,7 +609,7 @@ private:
      *  recording velocity.  A "stazed" feature.
      */
 
-    int m_note_on_velocity;
+    short m_note_on_velocity;
 
     /**
      *  The Note Off velocity used.  Currently set to
@@ -506,7 +617,7 @@ private:
      *  "stazed" feature.
      */
 
-    int m_note_off_velocity;
+    short m_note_off_velocity;
 
     /**
      *  Holds a copy of the musical key for this sequence, which we now
@@ -531,7 +642,7 @@ private:
      *  be set.
      */
 
-    int m_background_sequence;
+    short m_background_sequence;
 
     /**
      *  Provides locking for the sequence.  Made mutable for use in
@@ -616,19 +727,54 @@ public:
      *  Gets the trigger count, useful for exporting a sequence.
      */
 
-    int get_trigger_count () const
+    int trigger_count () const
     {
-        return int(m_triggers.triggerlist().size());
+        return int(m_triggers.count());
     }
+
+    /**
+     *  Gets the number of selected triggers.  That is, selected in the
+     *  perfroll.
+     */
+
+    int selected_trigger_count () const
+    {
+        return m_triggers.number_selected();
+    }
+
+    /**
+     *  Sets the tick for pasting.
+     *
+     * \param tick
+     *      Provides the pulse value to set.
+     */
 
     void set_trigger_paste_tick (midipulse tick)
     {
         m_triggers.set_trigger_paste_tick(tick);
     }
 
+    /**
+     *  Gets the tick for pasting.
+     *
+     * \return
+     *      Returns the current pulse value.
+     */
+
     midipulse get_trigger_paste_tick () const
     {
         return m_triggers.get_trigger_paste_tick();
+    }
+
+    /**
+     * \getter m_seq_number as a string
+     */
+
+    std::string seq_number () const
+    {
+        char temp[8];
+        snprintf(temp, sizeof temp, "%d", int(m_seq_number));
+        return std::string(temp);
     }
 
     /**
@@ -637,7 +783,7 @@ public:
 
     int number () const
     {
-        return m_seq_number;
+        return int(m_seq_number);
     }
 
     /**
@@ -648,9 +794,58 @@ public:
 
     void number (int seqnum)
     {
-        if (seqnum >= 0 && m_seq_number == (-1))
-            m_seq_number = seqnum;
+        if (seqnum >= 0 && seqnum <= int(SHRT_MAX) && m_seq_number == (-1))
+            m_seq_number = short(seqnum);
     }
+
+#ifdef USE_SEQUENCE_COLOR
+
+    /**
+     * \getter m_seq_colour
+     */
+
+    int colour () const
+    {
+        return int(m_seq_colour);
+    }
+
+    /**
+     * \setter m_seq_colour
+     *      This setter will set the sequence number only if it has not
+     *      already been set.
+     */
+
+    void colour (int c)
+    {
+        if (c >= 0 && c <= int(UCHAR_MAX))
+            m_seq_colour = seq_colour_t(c);
+    }
+
+#endif  // USE_SEQUENCE_COLOR
+
+#ifdef USE_SEQUENCE_EDIT_MODE
+
+    /**
+     * \getter m_seq_edit_mode
+     *      A feature adapted from Kepler34.
+     */
+
+    edit_mode_t edit_mode () const
+    {
+        return m_seq_edit_mode;
+    }
+
+    /**
+     * \setter m_seq_edit_mode
+     *      A feature adapted from Kepler34.
+     */
+
+    void edit_mode (edit_mode_t mode)
+    {
+        m_seq_edit_mode = mode;
+    }
+
+#endif  // USE_SEQUENCE_EDIT_MODE
 
     void modify ();
     int event_count () const;
@@ -720,8 +915,8 @@ public:
     void set_name (const std::string & name);
 
     /*
-     * Amazingly, these functions, set_measures() and get_measures(),  have
-     * had no definitions (just declarations) since seq24!  We don't store the
+     * Amazingly, the functions set_measures() and get_measures() have had no
+     * definitions (just declarations) since seq24!  We don't store the
      * measures, but calculate them when needed.
      */
 
@@ -734,7 +929,7 @@ public:
 
     int get_ppqn () const
     {
-        return m_ppqn;
+        return int(m_ppqn);
     }
 
     void set_beats_per_bar (int beatspermeasure);
@@ -745,7 +940,7 @@ public:
 
     int get_beats_per_bar () const
     {
-        return m_time_beats_per_measure;
+        return int(m_time_beats_per_measure);
     }
 
     void set_beat_width (int beatwidth);
@@ -758,7 +953,7 @@ public:
 
     int get_beat_width () const
     {
-        return m_time_beat_width;
+        return int(m_time_beat_width);
     }
 
     /**
@@ -770,7 +965,8 @@ public:
     {
         return seq64::measures_to_ticks
         (
-            m_time_beats_per_measure, m_ppqn, m_time_beat_width, measures
+            int(m_time_beats_per_measure), int(m_ppqn),
+            int(m_time_beat_width), measures
         );
     }
 
@@ -941,11 +1137,14 @@ public:
 
     /**
      *  An overload that gets its values from this sequence object.
+     *
+     * \param meas
+     *      The number of measures to apply.  Defaults to 1.
      */
 
-    void apply_length (int measures = 1)
+    void apply_length (int meas = 1)
     {
-        apply_length(get_beats_per_bar(), m_ppqn, get_beat_width(), measures);
+        apply_length(get_beats_per_bar(), int(m_ppqn), get_beat_width(), meas);
     }
 
     /**
@@ -987,9 +1186,9 @@ public:
         return m_playing;
     }
 
-    /**
-     *  Toggles the playing status of this sequence.  How exactly does this
-     *  differ from toggling the mute status?
+    /*
+     * The midipulse and bool parameters of the overload of this function are
+     * new, to support song-recording.
      */
 
     void toggle_playing ()
@@ -997,9 +1196,13 @@ public:
         set_playing(! get_playing());
     }
 
+    void toggle_playing (midipulse tick, bool resumenoteons);
     void toggle_queued ();
+
+#ifdef SEQ64_USE_AUTO_SCREENSET_QUEUE
     void off_queued ();
     void on_queued ();
+#endif
 
     /**
      * \getter m_queued
@@ -1028,7 +1231,9 @@ public:
         return get_queued() && (get_queued_tick() <= tick);
     }
 
-    void set_recording (bool);
+    void set_recording (bool record_active);
+    void set_quantized_recording (bool qr);
+    void set_input_recording (bool record_active, bool toggle = false);
 
     /**
      * \getter m_recording
@@ -1052,7 +1257,6 @@ public:
     }
 
     void set_snap_tick (int st);
-    void set_quantized_rec (bool qr);
 
     /**
      * \getter m_quantized_rec
@@ -1063,7 +1267,8 @@ public:
         return m_quantized_rec;
     }
 
-    void set_thru (bool);
+    void set_thru (bool thru_active);                               // seqedit
+    void set_input_thru (bool thru_active, bool toggle = false);    // perform
 
     /**
      * \getter m_thru
@@ -1073,6 +1278,80 @@ public:
     {
         return m_thru;
     }
+
+#ifdef SEQ64_SONG_RECORDING
+
+    void off_one_shot ();
+    void song_recording_start (midipulse tick, bool snap);
+    void song_recording_stop (midipulse tick);
+
+    /**
+     * \getter m_one_shot_tick
+     */
+
+    midipulse one_shot_tick () const
+    {
+        return m_one_shot_tick;
+    }
+
+    /**
+     * \getter m_song_recording
+     */
+
+    bool song_recording () const
+    {
+        return m_song_recording;
+    }
+
+    /**
+     * \getter m_one_shot
+     */
+
+    bool one_shot () const
+    {
+        return m_one_shot;
+    }
+
+    /**
+     * \getter m_off_from_snap
+     */
+
+    bool off_from_snap () const
+    {
+        return m_off_from_snap;
+    }
+
+    /**
+     * \getter m_song_playback_block
+     */
+
+    bool song_playback_block () const
+    {
+        return m_song_playback_block;
+    }
+
+    /**
+     * \getter m_song_recording_snap
+     */
+
+    bool song_recording_snap () const
+    {
+        return m_song_recording_snap;
+    }
+
+    /**
+     * \getter  m_song_recording_tic
+     */
+
+    midipulse song_record_tick () const
+    {
+        return m_song_record_tick;
+    }
+
+    void resume_note_ons (midipulse tick);
+    void toggle_one_shot ();
+
+#endif  // SEQ64_SONG_RECORDING
 
     bool is_dirty_main ();
     bool is_dirty_edit ();
@@ -1102,8 +1381,15 @@ public:
     void set_midi_channel (midibyte ch, bool user_change = false);
     void print () const;
     void print_triggers () const;
+
+#ifdef SEQ64_SONG_RECORDING
+    void play (midipulse tick, bool playback_mode, bool resume = false);
+    void play_queue (midipulse tick, bool playbackmode, bool resume);
+#else
     void play (midipulse tick, bool playback_mode);
     void play_queue (midipulse tick, bool playbackmode);
+#endif
+
     bool add_note
     (
         midipulse tick, midipulse len, int note,
@@ -1136,16 +1422,17 @@ public:
         midipulse offset = 0, bool adjust_offset = true
     );
     void split_trigger (midipulse tick);
+    void half_split_trigger (midipulse tick);
+    void exact_split_trigger (midipulse tick);
     void grow_trigger (midipulse tick_from, midipulse tick_to, midipulse len);
-    void del_trigger (midipulse tick);
-    bool get_trigger_state (midipulse tick);
+    void delete_trigger (midipulse tick);
+    bool get_trigger_state (midipulse tick) const;
     bool select_trigger (midipulse tick);
     triggers::List get_triggers () const;
+    bool unselect_trigger (midipulse tick);
     bool unselect_triggers ();
-    bool intersect_triggers
-    (
-        midipulse position, midipulse & start, midipulse & ender
-    );
+    bool intersect_triggers (midipulse pos, midipulse & start, midipulse & end);
+    bool intersect_triggers (midipulse pos);
     bool intersect_notes
     (
         midipulse position, int position_note,
@@ -1156,15 +1443,24 @@ public:
         midipulse posstart, midipulse posend,
         midibyte status, midipulse & start
     );
-    void del_selected_trigger ();
+    void delete_selected_trigger ();
     void cut_selected_trigger ();
     void copy_selected_trigger ();
     void paste_trigger (midipulse paste_tick = SEQ64_NO_PASTE_TRIGGER);
-    bool move_selected_triggers_to
+    bool move_triggers
     (
         midipulse tick, bool adjust_offset,
         triggers::grow_edit_t which = triggers::GROW_MOVE
     );
+
+#ifdef SEQ64_SONG_BOX_SELECT
+    void offset_triggers
+    (
+        midipulse offset,
+        triggers::grow_edit_t editmode = triggers::GROW_MOVE
+    );
+#endif
+
     midipulse selected_trigger_start ();
     midipulse selected_trigger_end ();
     midipulse get_max_trigger ();
@@ -1418,7 +1714,7 @@ public:
 
     int background_sequence () const
     {
-        return m_background_sequence;
+        return int(m_background_sequence);
     }
 
     /**
@@ -1431,7 +1727,7 @@ public:
     void background_sequence (int bs)
     {
         if (SEQ64_IS_LEGAL_SEQUENCE(bs))
-            m_background_sequence = bs;
+            m_background_sequence = short(bs);
     }
 
     void show_events () const;
@@ -1458,6 +1754,18 @@ public:
             set_unit_measure();
 
         return m_unit_measure;
+    }
+
+    /**
+     * \getter m_channel_match
+     *      The master bus needs to know if the match feature is truly in
+     *      force, otherwise it must pass the incoming events to all recording
+     *      sequences.  Compare this function to channels_match().
+     */
+
+    bool channel_match () const
+    {
+        return m_channel_match;
     }
 
 #ifdef SEQ64_STAZED_EXPAND_RECORD
@@ -1515,18 +1823,76 @@ private:
      *      The event whose channel nybble is to be checked.
      *
      * \return
-     *      Returns true if the channel-matching feature is enable and the
-     *      channels match, or true if the channel-matching feature is turned
-     *      off.
+     *      Returns true if the channel-matching feature is enabled and the
+     *      channel matches, or true if the channel-matching feature is turned
+     *      off, in which case the sequence accepts events on any channel.
      */
 
-    bool channel_match (const event & e) const
+    bool channels_match (const event & e) const
     {
         if (m_channel_match)
             return (e.get_status() & 0x0F) == m_midi_channel;
         else
             return true;
     }
+
+#ifdef SEQ64_SONG_RECORDING
+
+    /**
+     * \setter m_one_shot
+     */
+
+    void one_shot (bool f)
+    {
+        m_one_shot = f;
+    }
+
+    /**
+     * \setter m_off_from_snap
+     */
+
+    void off_from_snap (bool f)
+    {
+        m_off_from_snap = f;
+    }
+
+    /**
+     * \setter m_song_playback_block
+     */
+
+    void song_playback_block (bool f)
+    {
+        m_song_playback_block = f;
+    }
+
+    /**
+     * \setter m_song_recording
+     */
+
+    void song_recording (bool f)
+    {
+        m_song_recording = f;
+    }
+
+    /**
+     * \getter m_song_recording_snap
+     */
+
+    void song_recording_snap (bool f)
+    {
+        m_song_recording_snap = f;
+    }
+
+    /**
+     * \getter  m_song_record_tick
+     */
+
+    void song_record_tick (midipulse t)
+    {
+        m_song_record_tick = t;
+    }
+
+#endif      // SEQ64_SONG_RECORDING
 
 };          // class sequence
 

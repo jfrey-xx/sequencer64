@@ -26,7 +26,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-13
+ * \updates       2018-01-29
  * \license       GNU GPLv2 or above
  *
  *  Note that the parse function has some code that is not yet enabled.
@@ -48,7 +48,7 @@
 namespace seq64
 {
 
-class perform;          // temporary forward reference
+//////// class perform;          // temporary forward reference
 
 /**
  *  Principal constructor.
@@ -125,7 +125,7 @@ userfile::dump_setting_summary ()
  */
 
 bool
-userfile::parse (perform & /* a_perf */)
+userfile::parse (perform & /* p */)
 {
     std::ifstream file(m_name.c_str(), std::ios::in | std::ios::ate);
     if (! file.is_open())
@@ -133,17 +133,32 @@ userfile::parse (perform & /* a_perf */)
         fprintf(stderr, "? error opening [%s]\n", m_name.c_str());
         return false;
     }
-    file.seekg(0, std::ios::beg);                       /* seek to start */
+    file.seekg(0, std::ios::beg);                       /* seek to start    */
 
     /*
-     * Header commentary is skipped during parsing.
+     * [comments]
      *
-     * \change ca 2016-04-04
-     *      Next, if we're using the manual or auto ALSA port options
-     *      specified in the RC file, we do want to override the ports that
-     *      the queries of the ALSA system find.  Otherwise, we might want to
-     *      reveal the names obtained by port detection for ALSA, and do not
-     *      want to override the names of the ports that are found.
+     * Header commentary is skipped during parsing.  However, we now try to
+     * read an optional comment block.
+     */
+
+    if (line_after(file, "[comments]"))                 /* gets first line  */
+    {
+        usr().clear_comments();
+        do
+        {
+            usr().append_comment_line(m_line);
+            usr().append_comment_line("\n");
+
+        } while (next_data_line(file));
+    }
+
+    /*
+     *  Next, if we're using the manual or hide ALSA port options specified in
+     *  the "rc" file, do want to override the ports that the queries of the
+     *  ALSA system find.  Otherwise, we might want to reveal the names
+     *  obtained by port detection for ALSA, and do not want to override the
+     *  names of the ports that are found.
      */
 
     if (! rc().reveal_alsa_ports())
@@ -154,7 +169,7 @@ userfile::parse (perform & /* a_perf */)
 
         int buses = 0;
         if (line_after(file, "[user-midi-bus-definitions]"))
-            sscanf(m_line, "%d", &buses);                    /* atavistic!    */
+            sscanf(m_line, "%d", &buses);               /* atavistic!       */
 
         /*
          * [user-midi-bus-x]
@@ -170,11 +185,10 @@ userfile::parse (perform & /* a_perf */)
             {
                 (void) next_data_line(file);
                 int instruments = 0;
-                int instrument;
-                int channel;
-                sscanf(m_line, "%d", &instruments);
+                sscanf(m_line, "%d", &instruments);     /* no. of channels  */
                 for (int j = 0; j < instruments; ++j)
                 {
+                    int channel, instrument;
                     (void) next_data_line(file);
                     sscanf(m_line, "%d %d", &channel, &instrument);
                     usr().set_bus_instrument(bus, channel, instrument);
@@ -218,15 +232,28 @@ userfile::parse (perform & /* a_perf */)
             for (int j = 0; j < ccs; ++j)
             {
                 int c = 0;
-                (void) next_data_line(file);
+                if (! next_data_line(file))
+                    break;
+
                 ccname[0] = 0;                              // clear the buffer
                 sscanf(m_line, "%d %[^\n]", &c, ccname);
                 if (c >= 0 && c < SEQ64_MIDI_CONTROLLER_MAX)      // 128
                 {
-                    usr().set_instrument_controllers
-                    (
-                        i, c, std::string(ccname), true
-                    );
+                    std::string name(ccname);
+                    if (name.empty())
+                    {
+                        /*
+                         * TMI:
+                         *
+                        fprintf
+                        (
+                            stderr, "? missing controller name for '%s'\n",
+                            label.c_str()
+                        );
+                         */
+                    }
+                    else
+                        usr().set_instrument_controllers(i, c, name, true);
                 }
                 else
                 {
@@ -488,20 +515,36 @@ userfile::parse (perform & /* a_perf */)
         if (line_after(file, "[user-options]"))
         {
             int scratch = 0;
-            if (next_data_line(file))
-                sscanf(m_line, "%d", &scratch);
+            sscanf(m_line, "%d", &scratch);
+            usr().option_daemonize(scratch != 0);
 
-            usr().option_daemonize(scratch);
-            char temp[256];                         // TENTATIVE
+            char temp[256];
             if (next_data_line(file))
             {
                 sscanf(m_line, "%s", temp);
                 std::string logfile = std::string(temp);
-                printf("logfile = '%s'\n", logfile.c_str());
                 if (logfile == "\"\"")
                     logfile.clear();
+                else
+                    printf("[option_logfile = '%s']\n", logfile.c_str());
 
                 usr().option_logfile(logfile);
+            }
+        }
+
+        /*
+         * Work-arounds for sticky issues
+         */
+
+        if (line_after(file, "[user-work-arounds]"))
+        {
+            int scratch = 0;
+            sscanf(m_line, "%d", &scratch);
+            usr().work_around_play_image(scratch != 0);
+            if (next_data_line(file))
+            {
+                sscanf(m_line, "%d", &scratch);
+                usr().work_around_transpose_image(scratch != 0);
             }
         }
     }
@@ -547,7 +590,7 @@ userfile::write (const perform & /* a_perf */ )
            "# Sequencer64 user configuration file (legacy Seq24 0.9.2 format)\n";
     }
     else
-        file << "# Sequencer64 0.92.0 (and above) user configuration file\n";
+        file << "# Sequencer64 0.94.0 (and above) user configuration file\n";
 
     file << "#\n"
         "# Created by reading the following file and writing it out via the\n"
@@ -555,25 +598,42 @@ userfile::write (const perform & /* a_perf */ )
         "#\n"
         "# https://raw.githubusercontent.com/vext01/"
                "seq24/master/seq24usr.example\n"
+        "#\n"
+        "# This is a sequencer64.usr file. Edit it and place it in the\n"
+        "# $HOME/.config/sequencer64 directory. It allows one to provide an\n"
+        "# alias (alternate name) to each MIDI bus, MIDI channel, and MIDI\n"
+        "# control codes per channel.\n"
         ;
 
     file << "#\n"
-        "#  This is an example for a sequencer64.usr file. Edit and place in\n"
-        "#  your home directory. It allows you to give an alias to each\n"
-        "#  MIDI bus, MIDI channel, and MIDI control codes per channel.\n"
+        "# The [comments] section lets one document this file.  Lines starting\n"
+        "# with '#' and '[' are ignored.  Blank lines are ignored.  To show a\n"
+        "# blank line, add a space character to the line.\n"
         ;
 
-    file << "#\n"
-        "#  1. Define your instruments and their control-code names,\n"
-        "#     if they have them.\n"
-        "#  2. Define a MIDI bus, its name, and what instruments are\n"
-        "#     on which channel.\n"
-    ;
+    /*
+     * [comments]
+     */
 
-    file << "#\n"
+    file << "\n"
+        << "[comments]\n"
+        << "\n"
+        << usr().comments_block() << "\n"
+        ;
+
+    file <<
+        "# 1. Define your instruments and their control-code names,\n"
+        "#    if they have them.\n"
+        "# 2. Define a MIDI bus, its name, and what instruments are\n"
+        "#    on which channel.\n"
+        "#\n"
         "# In the following MIDI buss definitions, channels are counted\n"
-        "# from 0 to 15, not 1 to 16.  Instruments unspecified are set to\n"
+        "# from 0 to 15, not 1 to 16.  Instruments not set here are set to\n"
         "# -1 (SEQ64_GM_INSTRUMENT_FLAG) and are GM (General MIDI).\n"
+        "# These replacement MIDI buss labels are shown in MIDI Clocks,\n"
+        "# MIDI Inputs, and in the Pattern Editor buss drop-down.\n"
+        "#\n"
+        "# To temporarily disable the entries, set the count values to 0.\n"
         ;
 
     /*
@@ -601,22 +661,22 @@ userfile::write (const perform & /* a_perf */ )
         if (umb.is_valid())
         {
             file
-                << "# Device name for this buss:\n"
-                << "\n"
+                << "# Device name\n"
                 << umb.name() << "\n"
                 << "\n"
-                << "# Number of channels:\n"
-                << "\n"
-                << umb.channel_count() << "\n"
-                << "\n"
-                << "# channel and instrument (or program) number\n"
-                << "\n"
+                << umb.channel_count()
+                << "      # number of instrument settings\n"
                 ;
 
-            for (int channel = 0; channel < umb.channel_max(); ++channel)
+            for (int channel = 0; channel < umb.channel_count(); ++channel)
             {
                 if (umb.instrument(channel) != SEQ64_GM_INSTRUMENT_FLAG)
-                    file << channel << " " << umb.instrument(channel) << "\n";
+                {
+                    file
+                        << channel << " " << umb.instrument(channel)
+                        << "    # channel index & instrument number\n"
+                        ;
+                }
 #if defined PLATFORM_DEBUG && defined SHOW_IGNORED_ITEMS
                 else
                 {
@@ -631,11 +691,9 @@ userfile::write (const perform & /* a_perf */ )
         }
         else
             file << "? This buss specification is invalid\n";
-
-        file << "\n# End of buss definition " << buss << "\n";
     }
 
-    file <<
+    file << "\n"
         "# In the following MIDI instrument definitions, active controller\n"
         "# numbers (i.e. supported by the instrument) are paired with\n"
         "# the (optional) name of the controller supported.\n"
@@ -669,27 +727,27 @@ userfile::write (const perform & /* a_perf */ )
         if (uin.is_valid())
         {
             file
-                << "# Name of instrument:\n"
-                << "\n"
+                << "# Name of instrument\n"
                 << uin.name() << "\n"
                 << "\n"
-                << "# Number of MIDI controller values:\n"
-                << "\n"
-                << uin.controller_count() << "\n"
+                << uin.controller_count()
+                << "    # number of MIDI controller number & name pairs\n"
                 ;
 
             if (uin.controller_count() > 0)
             {
-                file
-                    << "\n"
-                    << "# controller number and (optional) name:\n"
-                    << "\n"
-                    ;
-
                 for (int ctlr = 0; ctlr < uin.controller_max(); ++ctlr)
                 {
                     if (uin.controller_active(ctlr))
+                    {
                         file << ctlr << " " << uin.controller_name(ctlr) << "\n";
+
+                            /*
+                             * TMI
+                             *
+                             * << "# controller number & name:\n"
+                             */
+                    }
 #if defined PLATFORM_DEBUG && defined SHOW_IGNORED_ITEMS
                     else
                     {
@@ -707,9 +765,6 @@ userfile::write (const perform & /* a_perf */ )
         {
             file << "? This instrument specification is invalid\n";
         }
-        file << "\n# End of instrument/controllers definition "
-            << inst << "\n\n"
-            ;
     }
 
     /*
@@ -722,8 +777,8 @@ userfile::write (const perform & /* a_perf */ )
 
     if (! rc().legacy_format())
     {
-        file <<
-            "#   ======== Sequencer64-Specific Variables Section ========\n"
+        file << "\n"
+            "# ======== Sequencer64-Specific Variables Section ========\n"
             "\n"
             "[user-interface-settings]\n"
             "\n"
@@ -800,7 +855,6 @@ userfile::write (const perform & /* a_perf */ )
             "# changed here.  Note that large PPQN values will require larger\n"
             "# zoom values in order to look good in the sequence editor.\n"
             "# Sequencer64 adapts the zoom to the PPQN, if zoom is set to 0.\n"
-            "# \n"
             "\n"
             << usr().zoom() << "      # default zoom (0 = auto-adjust to PPQN)\n"
             ;
@@ -918,7 +972,8 @@ userfile::write (const perform & /* a_perf */ )
 
         file << "\n"
             "# Specifies the window redraw rate for all windows that support\n"
-            "# that concept.  The default is 40 ms.  Some windows used 25 ms.\n"
+            "# that concept.  The default is 40 ms.  Some windows used 25 ms,\n"
+            "# which is faster.\n"
             "\n"
             << usr().window_redraw_rate()
             << "      # window_redraw_rate\n"
@@ -987,7 +1042,7 @@ userfile::write (const perform & /* a_perf */ )
             "\n"
             "# Specifies parts-per-quarter note to use, if the MIDI file.\n"
             "# does not override it.  Default is 192, but we'd like to go\n"
-            "# higher than that.  BEWARE:  STILL GETTING IT TO WORK!\n"
+            "# higher than that.\n"
             "\n"
             << usr().midi_ppqn() << "       # midi_ppqn\n"
             ;
@@ -1112,7 +1167,7 @@ userfile::write (const perform & /* a_perf */ )
             ;
 
         int uscratch = usr().option_daemonize() ? 1 : 0 ;
-        file << uscratch << "       # option_daemonize\n\n";
+        file << uscratch << "       # option_daemonize\n";
         file << "\n"
             "# This value specifies an optional log-file that replaces output\n"
             "# to standard output and standard error.  To indicate no log-file,\n"
@@ -1125,6 +1180,36 @@ userfile::write (const perform & /* a_perf */ )
             file << "\"\"\n";
         else
             file << logfile << "\n";
+
+        /*
+         * [user-work-arounds]
+         */
+
+        file << "\n"
+            "[user-work-arounds]\n"
+            "\n"
+            "# These settings specify application-specific values that work\n"
+            "# around issues that we have not been able to truly fix for all\n"
+            "# users.\n"
+            "\n"
+            "# The work_around_play_image option can be set to 0 or 1.  0 is\n"
+            "# the normal setting. Set it to 1 if multiple-clicks of the play\n"
+            "# button (or the equivalent play/pause/stop actions) cause the\n"
+            "# sequencer64 application to crash.\n"
+            "\n"
+            ;
+
+        uscratch = usr().work_around_play_image() ? 1 : 0 ;
+        file
+            << uscratch << "       # work_around_play_image\n"
+            "\n"
+            "# The work_around_transpose_image option is similar, for an issue\n"
+            "# some users have setting the transpose button in seqedit.\n"
+            "\n"
+            ;
+
+        uscratch = usr().work_around_transpose_image() ? 1 : 0 ;
+        file << uscratch << "       # work_around_transpose_image\n";
     }
 
     /*

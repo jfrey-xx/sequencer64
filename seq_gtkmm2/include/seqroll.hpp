@@ -28,7 +28,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-14
+ * \updates       2018-01-21
  * \license       GNU GPLv2 or above
  *
  *  We are currently moving toward making this class a base class.
@@ -39,7 +39,7 @@
 
 #include "globals.h"
 #include "gui_drawingarea_gtk2.hpp"
-#include "fruityseqroll.hpp"
+#include "rect.hpp"                     /* seq64::rect class        */
 #include "sequence.hpp"
 #include "scales.h"                     /* STAZED chord support     */
 
@@ -64,53 +64,11 @@ namespace seq64
     class seqkeys;
 
 /**
- *  A small helper class representing a rectangle.
- */
-
-class rect
-{
-
-public:
-
-    /**
-     *  The x-coordinate of the origin of the rectangle.
-     */
-
-    int x;
-
-    /**
-     *  The y-coordinate of the origin of the rectangle.
-     */
-
-    int y;
-
-    /**
-     *  The height of the rectangle, in units of pixels.
-     */
-
-    int height;
-
-    /**
-     *  The width of the rectangle, in units of pixels.
-     */
-
-    int width;
-};
-
-/**
  *  Implements the piano roll section of the pattern editor.
  */
 
 class seqroll : public gui_drawingarea_gtk2
 {
-    /**
-     *  This friend implements fruity interaction-specific behavior.  We've
-     *  absorbed the Seq24SeqRollInput class functionality back into seqroll,
-     *  to save code.
-     */
-
-    friend class FruitySeqRollInput;
-
     /**
      *  For accessing on_key_press_event().  It would be good to be able to
      *  avoid this access!
@@ -122,7 +80,7 @@ class seqroll : public gui_drawingarea_gtk2
      * friend class seqedit;
      */
 
-private:
+protected:
 
     /**
      *  We need direct access to the horizontal scrollbar if we want to be
@@ -151,17 +109,10 @@ private:
     rect m_selected;
 
     /**
-     *  Provides a reference to the seqeunce represented by piano roll.
+     *  Provides a reference to the sequence represented by piano roll.
      */
 
     sequence & m_seq;
-
-    /*
-     *  Provides a sequence object to hold a copy of the .... sequence.
-     *  Not used at all.
-     *
-     *  sequence * m_clipboard;
-     */
 
     /**
      *  Holds a reference to the seqkeys pane that is associated with the
@@ -169,12 +120,6 @@ private:
      */
 
     seqkeys & m_seqkeys_wid;
-
-    /**
-     *  Provides a fruity input object, whether it is needed or not.
-     */
-
-    FruitySeqRollInput m_fruity_interaction;
 
     /**
      *  A position value.  Need to clarify what exactly this member is used
@@ -274,7 +219,7 @@ private:
     bool m_painting;
 
     /**
-     *  Indicates that we are in the process of painting notes.
+     *  Indicates that we are in the process of pasting notes.
      */
 
     bool m_paste;
@@ -392,15 +337,6 @@ private:
     bool m_drawing_background_seq;
 
     /**
-     *  Set to true to avoid the call to update_and_draw().  Used in
-     *  set_background_sequence(), change_horz(), change_vert(), reset()....
-     *  Never set to true, except in seq24, let's just comment it out for now.
-     *  It hasn't been used in sequencer64 for awhile now.
-     *
-     * bool m_ignore_redraw;
-     */
-
-    /**
      *  Provides an option for expanding the number of measures while
      *  recording.  In essence, the "infinite" track we've wanted, thanks
      *  to Stazed and his Seq32 project.  Defaults to false.
@@ -426,9 +362,14 @@ public:
 
     seqroll
     (
-        perform & perf, sequence & seq, int zoom, int snap,
-        seqkeys & seqkeys_wid, int pos,
-        Gtk::Adjustment & hadjust, Gtk::Adjustment & vadjust,
+        perform & perf,
+        sequence & seq,
+        int zoom,
+        int snap,
+        seqkeys & seqkeys_wid,
+        int pos,
+        Gtk::Adjustment & hadjust,
+        Gtk::Adjustment & vadjust,
         int ppqn = SEQ64_USE_DEFAULT_PPQN
     );
     virtual ~seqroll ();
@@ -471,27 +412,6 @@ public:
     }
 
     bool add_note (midipulse tick, int note, bool paint = true);
-
-#ifdef SEQ64_STAZED_CHORD_GENERATOR
-
-    /**
-     * Convenience wrapper for sequence::add_chord().  Implicit parameters are
-     * the m_chord and note_off_length() members.  The latter deducts just a
-     * little from the snap value.
-     *
-     * \param tick
-     *      The tick at which to add the chord.
-     *
-     * \param note
-     *      The base (bottom) note of the chord.
-     */
-
-    void add_chord (midipulse tick, int note)
-    {
-        m_seq.add_chord(m_chord, tick, note_off_length(), note);
-    }
-
-#endif
 
     /*
      * \setter m_ignore_redraw
@@ -589,7 +509,7 @@ public:
 
 #endif
 
-private:
+protected:
 
     virtual void force_draw ();
 
@@ -665,6 +585,10 @@ private:
         midipulse tick_s, midipulse tick_f, int note_h, int note_l,
         int & x, int & y, int & w, int & h
     );
+    void convert_tn_box_to_rect
+    (
+        midipulse tick_s, midipulse tick_f, int note_h, int note_l, rect & r
+    );
     void convert_sel_box_to_rect
     (
         midipulse tick_s, midipulse tick_f, int note_h, int note_l
@@ -703,25 +627,7 @@ private:
     void add_snapped_note ();
 #endif
 
-private:            // new internal/friend functions
-
-    /**
-     * \setter m_old
-     */
-
-    void clear_selected ()
-    {
-        m_selected.x = m_selected.y = m_selected.width = m_selected.height = 0;
-    }
-
-    /**
-     * \setter m_old
-     */
-
-    void clear_old ()
-    {
-        m_old.x = m_old.y = m_old.width = m_old.height = 0;
-    }
+protected:            // new internal/friend functions
 
     /**
      *  Clears all the mouse-action flags.
@@ -732,6 +638,9 @@ private:            // new internal/friend functions
 		m_selecting = m_moving = m_growing = m_paste = m_moving_init =
 			 m_painting = false;
     }
+
+    void set_scroll_x ();
+    void set_scroll_y ();
 
     /**
      *  Useful x calculation.  Offsets the x value by the x origin of the
@@ -758,32 +667,6 @@ private:            // new internal/friend functions
     {
         return y + m_scroll_offset_y;
     }
-
-    /**
-     *  Useful x calculation.  Offsets the current x value by the x origin of
-     *  the current page.
-     *
-     * \param x
-     *      The x value to offset.
-
-    void set_current_offset_x (int x)
-    {
-        m_current_x = x + m_scroll_offset_x;
-    }
-     */
-
-    /**
-     *  Useful y calculation.  Offsets the current y value by the y origin of
-     *  the current page.
-     *
-     * \param y
-     *      The y value to offset.
-
-    void set_current_offset_y (int y)
-    {
-        m_current_y = y + m_scroll_offset_y;
-    }
-     */
 
     /**
      *  Useful x and y calculation.  Offsets the current x and y values by the
@@ -850,7 +733,7 @@ private:            // new internal/friend functions
 
     bool select_action () const
     {
-        return m_selecting || m_growing || drop_action();
+        return selecting() || growing() || drop_action();
     }
 
     /**
@@ -874,22 +757,22 @@ private:            // new internal/friend functions
         return m_moving;
     }
 
-private:            // callbacks
+protected:            // callbacks
 
-    void on_realize ();
-    bool on_expose_event (GdkEventExpose * ev);
-    bool on_button_press_event (GdkEventButton * ev);
-    bool on_button_release_event (GdkEventButton * ev);
-    bool on_motion_notify_event (GdkEventMotion * ev);
-    bool on_focus_in_event (GdkEventFocus *);
-    bool on_focus_out_event (GdkEventFocus *);
-    bool on_key_press_event (GdkEventKey * ev);
-    bool on_scroll_event (GdkEventScroll * a_ev);
-    void on_size_allocate (Gtk::Allocation &);
-    bool on_leave_notify_event (GdkEventCrossing * p0);
-    bool on_enter_notify_event (GdkEventCrossing * p0);
+    virtual void on_realize ();
+    virtual bool on_expose_event (GdkEventExpose * ev);
+    virtual bool on_button_press_event (GdkEventButton * ev);
+    virtual bool on_button_release_event (GdkEventButton * ev);
+    virtual bool on_motion_notify_event (GdkEventMotion * ev);
+    virtual bool on_focus_in_event (GdkEventFocus *);
+    virtual bool on_focus_out_event (GdkEventFocus *);
+    virtual bool on_key_press_event (GdkEventKey * ev);
+    virtual bool on_scroll_event (GdkEventScroll * a_ev);
+    virtual void on_size_allocate (Gtk::Allocation &);
+    virtual bool on_leave_notify_event (GdkEventCrossing * p0);
+    virtual bool on_enter_notify_event (GdkEventCrossing * p0);
 
-};
+};          // class seqroll
 
 }           // namespace seq64
 

@@ -1,23 +1,24 @@
 /**
  * \file          midi_jack.cpp
  *
- *    A class for realtime MIDI input/output via ALSA.
+ *    A class for realtime MIDI input/output via JACK.
  *
+ * \library       sequencer64 application
  * \author        Gary P. Scavone; severe refactoring by Chris Ahlstrom
  * \date          2016-11-14
- * \updates       2017-08-22
+ * \updates       2018-01-26
  * \license       See the rtexmidi.lic file.  Too big for a header file.
  *
  *  Written primarily by Alexander Svetalkin, with updates for delta time by
  *  Gary Scavone, April 2011.
  *
- *  In this refactoring, we have to warp the RtMidi model, where ports are
- *  opened directly by the application, to the Sequencer64 midibus model,
- *  where the port object is created, but initialized after creation.  This
- *  proved very challenging -- it took a long time to get the midi_alsa
- *  implementation working, and still more time to get the midi_jack
- *  implementation solid.  So to call this code "rtmidi" code is slightly
- *  misleading.
+ *  In this Sequencer64 refactoring of RtMidi, we have to warp the RtMidi
+ *  model, where ports are opened directly by the application, to the
+ *  Sequencer64 midibus model, where the port object is created, but
+ *  initialized after creation.  This proved very challenging -- it took a
+ *  long time to get the midi_alsa implementation working, and still more time
+ *  to get the midi_jack implementation solid.  So to call this code "rtmidi"
+ *  code is slightly misleading.
  *
  *  There is an additional issue with JACK ports.  First, think of our ALSA
  *  implementation.  We have two modes:  manual (virtual) and real (normal)
@@ -32,6 +33,7 @@
  *  QJackCtl or a session manager.  Use the real/normal mode to connect
  *  automatically to whatever is already present.  Currently, though, new
  *  devices that appear in the system won't be accessible until a restart.
+ *  (Or perhaps a reconnection using a JACK manager like QJackCtl.)
  *
  * Random JACK notes:
  *
@@ -163,10 +165,8 @@ namespace seq64
  *  Defines the JACK input process callback.  It is the JACK process callback
  *  for a MIDI output port (e.g. "system:midi_capture_1", which gives us the
  *  output of the Korg nanoKEY2 MIDI controller), also known as a "Readable
- *  Client" by qjackctl. It does the following:
- *
- *  This callback receives data from JACK and gives it to our application's
- *  input port.
+ *  Client" by qjackctl.  This callback receives data from JACK and gives it
+ *  to our application's input port.
  *
  *  This function does the following:
  *
@@ -190,7 +190,7 @@ namespace seq64
  *  This function used to be static, but now we make if available to
  *  midi_jack_info.  Also note the s_null_detected flag.  It is used only to
  *  have the apiprint() debug messages appear only once, for better
- *  trouble-shooting.
+ *  trouble-shooting.  THIS CODE SHOULD BE A COMPILE-TIME OPTION.
  *
  * \param nframes
  *    The frame number to be processed.
@@ -205,9 +205,11 @@ namespace seq64
 int
 jack_process_rtmidi_input (jack_nframes_t nframes, void * arg)
 {
-    static bool s_null_detected = false;
     midi_jack_data * jackdata = reinterpret_cast<midi_jack_data *>(arg);
     rtmidi_in_data * rtindata = jackdata->m_jack_rtmidiin;
+
+#ifdef SEQ64_USE_DEBUG_OUTPUT
+    static bool s_null_detected = false;
     if (is_nullptr(jackdata->m_jack_port))     /* is port created?        */
     {
         if (! s_null_detected)
@@ -226,7 +228,7 @@ jack_process_rtmidi_input (jack_nframes_t nframes, void * arg)
         }
         return 0;
     }
-    s_null_detected = false;
+#endif  // SEQ64_USE_DEBUG_OUTPUT
 
     /*
      * Since this is an input port, buff is the area that contains data from
@@ -249,18 +251,19 @@ jack_process_rtmidi_input (jack_nframes_t nframes, void * arg)
                 for (int i = 0; i < eventsize; ++i)
                     message.push(jmevent.buffer[i]);
 
+                jack_time_t delta_jtime;
                 jtime = jack_get_time();            /* compute delta time   */
                 if (rtindata->first_message())
                 {
                     rtindata->first_message(false);
+                    delta_jtime = jack_time_t(0);
                 }
                 else
                 {
-                    message.timestamp
-                    (
-                        (jtime - jackdata->m_jack_lasttime) * 0.000001
-                    );
+                    jtime -= jackdata->m_jack_lasttime;
+                    delta_jtime = jack_time_t(jtime * 0.000001);
                 }
+                message.timestamp(delta_jtime);
                 jackdata->m_jack_lasttime = jtime;
                 if (! rtindata->continue_sysex())
                 {
@@ -292,11 +295,11 @@ jack_process_rtmidi_input (jack_nframes_t nframes, void * arg)
 }
 
 /**
- *  Defines the JACK process input callback.  It is the JACK process callback
- *  for a MIDI input port (a midi_in_jack object associated with, for example,
- *  "system:midi_playback_1", representing, for example, a Korg nanoKEY2 to
- *  which we can send information), also known as a "Writable Client" by
- *  qjackctl.  Here's how it works:
+ *  Defines the JACK process output callback.  It is the JACK process callback
+ *  for a MIDI output port (a midi_out_jack object associated with, for
+ *  example, "system:midi_playback_1", representing, for example, a Korg
+ *  nanoKEY2 to which we can send information), also known as a "Writable
+ *  Client" by qjackctl.  Here's how it works:
  *
  *      -#  Get the JACK port buffer, for our local jack port.  Clear it.
  *      -#  Loop while the number of bytes available for reading [via
@@ -313,8 +316,9 @@ jack_process_rtmidi_input (jack_nframes_t nframes, void * arg)
  *  ring buffer and pass it to the output buffer.
  *
  *  We were wondering if, like the JACK midiseq example program, we need to
- *  wrap out process in a for-loop over the number of frames.  In our tests,
- *  we are getting 1024 frames, and the code seems to work without that loop.
+ *  wrap the out-process in a for-loop over the number of frames.  In our
+ *  tests, we are getting 1024 frames, and the code seems to work without that
+ *  loop.
  *
  * \param nframes
  *    The frame number to be processed.
@@ -329,8 +333,10 @@ jack_process_rtmidi_input (jack_nframes_t nframes, void * arg)
 int
 jack_process_rtmidi_output (jack_nframes_t nframes, void * arg)
 {
-    static bool s_null_detected = false;
     midi_jack_data * jackdata = reinterpret_cast<midi_jack_data *>(arg);
+
+#ifdef SEQ64_USE_DEBUG_OUTPUT
+    static bool s_null_detected = false;
     if (is_nullptr(jackdata->m_jack_port))          /* is port created?     */
     {
         if (! s_null_detected)
@@ -340,7 +346,7 @@ jack_process_rtmidi_output (jack_nframes_t nframes, void * arg)
         }
         return 0;
     }
-    if (is_nullptr(jackdata->m_jack_buffsize))      /* port set up?        */
+    if (is_nullptr(jackdata->m_jack_buffsize))      /* port set up?         */
     {
         if (! s_null_detected)
         {
@@ -349,9 +355,11 @@ jack_process_rtmidi_output (jack_nframes_t nframes, void * arg)
         }
         return 0;
     }
+#endif  // SEQ64_USE_DEBUG_OUTPUT
 
     static size_t soffset = 0;
     void * buf = jack_port_get_buffer(jackdata->m_jack_port, nframes);
+    jack_midi_clear_buffer(buf);                    /* no nullptr test      */
 
 #ifdef SEQ64_SHOW_API_CALLS_TMI
     printf
@@ -360,8 +368,6 @@ jack_process_rtmidi_output (jack_nframes_t nframes, void * arg)
         int(nframes), (unsigned long)(jackdata->m_jack_port)
     );
 #endif
-
-    jack_midi_clear_buffer(buf);
 
     /*
      * A for-loop over the number of nframes?  See discussion above.
@@ -404,13 +410,6 @@ jack_process_rtmidi_output (jack_nframes_t nframes, void * arg)
  */
 
 /**
- *  We still need to figure out if we want a "master" client handle, or a
- *  handle to each port.  Same for the JACK data item.  Currently, we provide
- *  the m_multi_client member so that we can experiment, but "multi-client"
- *  mode is currently incompletely implemented.  Plus, we may want to use it
- *  to choose between handling input/output both in the callback, as done
- *  currently, or separating input and output into separate JACK clients.
- *
  *  Note that this constructor also adds its object to the midi_jack_info port
  *  list, so that the JACK callback functions can iterate through all of the
  *  JACK ports in use by this application, performing work on them.
@@ -423,33 +422,22 @@ jack_process_rtmidi_output (jack_nframes_t nframes, void * arg)
  *      extra informatino that is needed by this port.  Too many entities!
  *
  * \param multiclient
- *      If true, use multiple JACK clients.  EXPERIMENTAL.
+ *      If true, use multiple JACK clients.  Experimental, not really ready
+ *      for prime time.
  */
 
 midi_jack::midi_jack
 (
     midibus & parentbus,
-    midi_info & masterinfo,
-    bool multiclient
+    midi_info & masterinfo
 ) :
     midi_api            (parentbus, masterinfo),
-    m_multi_client      (multiclient),  // (SEQ64_RTMIDI_NO_MULTICLIENT),
     m_remote_port_name  (),
     m_jack_info         (dynamic_cast<midi_jack_info &>(masterinfo)),
     m_jack_data         ()
 {
-    if (multi_client())
-    {
-        // No code needed, yet
-    }
-    else
-    {
-        client_handle
-        (
-            reinterpret_cast<jack_client_t *>(masterinfo.midi_handle())
-        );
-        (void) m_jack_info.add(*this);
-    }
+    client_handle(reinterpret_cast<jack_client_t *>(masterinfo.midi_handle()));
+    (void) m_jack_info.add(*this);
 }
 
 /**
@@ -460,15 +448,6 @@ midi_jack::midi_jack
 
 midi_jack::~midi_jack ()
 {
-    if (multi_client())
-    {
-        /*
-         * We may be changing the potential usage of multi-client.
-         */
-
-        close_port();
-        close_client();
-    }
     if (not_nullptr(m_jack_data.m_jack_buffsize))
         jack_ringbuffer_free(m_jack_data.m_jack_buffsize);
 
@@ -499,40 +478,26 @@ midi_jack::~midi_jack ()
 bool
 midi_jack::api_init_out ()
 {
-    bool result = true;
     std::string remoteportname = connect_name();    /* "bus:port"   */
     remote_port_name(remoteportname);
-    if (multi_client())
-    {
-        /*
-         * We may be changing the potential usage of multi-client.
-         */
 
-        result = open_client_impl(SEQ64_MIDI_OUTPUT_PORT);
-    }
+    bool result = create_ringbuffer(JACK_RINGBUFFER_SIZE);
     if (result)
     {
-        result = create_ringbuffer(JACK_RINGBUFFER_SIZE);
-        if (result)
-        {
-            set_alt_name
-            (
-                rc().application_name(), rc().app_client_name(), remoteportname
-            );
-            parent_bus().set_alt_name           // TENTATIVE
-            (
-                rc().application_name(), rc().app_client_name(), remoteportname
-            );
-        }
-    }
-    if (result)
-    {
+        set_alt_name
+        (
+            rc().application_name(), rc().app_client_name(), remoteportname
+        );
+        parent_bus().set_alt_name
+        (
+            rc().application_name(), rc().app_client_name(), remoteportname
+        );
         result = register_port(SEQ64_MIDI_OUTPUT_PORT, port_name());
 
         /*
          * Note that we cannot connect ports until we are activated, and we
-         * cannot be activated until all ports are properly set up.
-         * Otherwise, we'd call:
+         * cannot activate until all ports are properly set up.  Otherwise,
+         * we'd call:
          *
          *  std::string localname = connect_name();
          *  result = connect_port(SEQ64_MIDI_OUTPUT, localname, remoteportname);
@@ -575,44 +540,30 @@ midi_jack::api_init_out ()
 bool
 midi_jack::api_init_in ()
 {
-    bool result = true;
     std::string remoteportname = connect_name();    /* "bus:port"       */
     remote_port_name(remoteportname);
-    if (multi_client())
-    {
-        /*
-         * We may be changing the potential usage of multi-client.
-         */
+    set_alt_name
+    (
+        rc().application_name(), rc().app_client_name(), remoteportname
+    );
+    parent_bus().set_alt_name
+    (
+        rc().application_name(), rc().app_client_name(), remoteportname
+    );
+    bool result = register_port(SEQ64_MIDI_INPUT_PORT, port_name());
 
-        result = open_client_impl(SEQ64_MIDI_INPUT_PORT);
-    }
-    else
-    {
-        set_alt_name
-        (
-            rc().application_name(), rc().app_client_name(), remoteportname
-        );
-        parent_bus().set_alt_name           // TENTATIVE
-        (
-            rc().application_name(), rc().app_client_name(), remoteportname
-        );
-    }
-    if (result)
-    {
-        result = register_port(SEQ64_MIDI_INPUT_PORT, port_name());
+    /*
+     * Note that we cannot connect ports until we are activated, and we
+     * cannot be activated until all ports are properly set up.
+     * Otherwise, we'd call:
+     *
+     *  std::string localname = connect_name();
+     *  result = connect_port(SEQ64_MIDI_INPUT, localname, remoteportname);
+     *  if (result) set_port_open();
+     *
+     * We also need to fill in the m_jack_data member here.
+     */
 
-        /*
-         * Note that we cannot connect ports until we are activated, and we
-         * cannot be activated until all ports are properly set up.
-         * Otherwise, we'd call:
-         *
-         *  std::string localname = connect_name();
-         *  result = connect_port(SEQ64_MIDI_INPUT, localname, remoteportname);
-         *  if (result) set_port_open();
-         *
-         * We also need to fill in the m_jack_data member here.
-         */
-    }
     return result;
 }
 
@@ -630,15 +581,6 @@ midi_jack::api_connect ()
     std::string remotename = remote_port_name();
     std::string localname = connect_name();     /* modified!    */
     bool result;
-    if (multi_client())
-    {
-        /*
-         * We may be changing the potential usage of multi-client.
-         */
-
-        jack_activate(client_handle());
-    }
-
     if (is_input_port())
         result = connect_port(SEQ64_MIDI_INPUT_PORT, remotename, localname);
     else
@@ -698,43 +640,30 @@ midi_jack::set_virtual_name (int portid, const std::string & portname)
 bool
 midi_jack::api_init_out_sub ()
 {
-    bool result = true;
     master_midi_mode(SEQ64_MIDI_OUTPUT_PORT);    /* this is necessary */
-    if (multi_client())
+    int portid = parent_bus().get_port_id();
+    bool result = portid >= 0;
+    if (! result)
     {
-        /*
-         * We may be changing the potential usage of multi-client.
-         */
-
-        result = open_client_impl(SEQ64_MIDI_OUTPUT_PORT);
+        portid = get_bus_index();
+        result = portid >= 0;
     }
+    if (result)
+        result = create_ringbuffer(JACK_RINGBUFFER_SIZE);
 
     if (result)
     {
-        int portid = parent_bus().get_port_id();
-        result = portid >= 0;
-        if (! result)
+        std::string portname = parent_bus().port_name();
+        if (portname.empty())
         {
-            portid = get_bus_index();
-            result = portid >= 0;
+            portname = rc().app_client_name() + " midi out ";
+            portname += std::to_string(portid);
         }
-        if (result)
-            result = create_ringbuffer(JACK_RINGBUFFER_SIZE);
-
+        result = register_port(SEQ64_MIDI_OUTPUT_PORT, portname);
         if (result)
         {
-            std::string portname = parent_bus().port_name();
-            if (portname.empty())
-            {
-                portname = rc().app_client_name() + " midi out ";
-                portname += std::to_string(portid);
-            }
-            result = register_port(SEQ64_MIDI_OUTPUT_PORT, portname);
-            if (result)
-            {
-                set_virtual_name(portid, portname);
-                set_port_open();
-            }
+            set_virtual_name(portid, portname);
+            set_port_open();
         }
     }
     return result;
@@ -750,40 +679,28 @@ midi_jack::api_init_out_sub ()
 bool
 midi_jack::api_init_in_sub ()
 {
-    bool result = true;
     master_midi_mode(SEQ64_MIDI_INPUT_PORT);
-    if (multi_client())
+    int portid = parent_bus().get_port_id();
+    bool result = portid >= 0;
+    if (! result)
     {
-        /*
-         * We may be changing the potential usage of multi-client.
-         */
-
-        result = open_client_impl(SEQ64_MIDI_INPUT_PORT);
+        portid = get_bus_index();
+        result = portid >= 0;
     }
     if (result)
     {
-        int portid = parent_bus().get_port_id();
-        result = portid >= 0;
-        if (! result)
+        std::string portname = master_info().get_port_name(get_bus_index());
+        std::string portname2 = parent_bus().port_name();
+        if (portname.empty())
         {
-            portid = get_bus_index();
-            result = portid >= 0;
+            portname = rc().app_client_name() + " midi in ";
+            portname += std::to_string(portid);
         }
+        result = register_port(SEQ64_MIDI_INPUT_PORT, portname);
         if (result)
         {
-            std::string portname = master_info().get_port_name(get_bus_index());
-            std::string portname2 = parent_bus().port_name();
-            if (portname.empty())
-            {
-                portname = rc().app_client_name() + " midi in ";
-                portname += std::to_string(portid);
-            }
-            result = register_port(SEQ64_MIDI_INPUT_PORT, portname);
-            if (result)
-            {
-                set_virtual_name(portid, portname);
-                set_port_open();
-            }
+            set_virtual_name(portid, portname);
+            set_port_open();
         }
     }
     return result;
@@ -825,24 +742,49 @@ midi_jack::api_play (event * e24, midibyte channel)
     printf("midi_jack::play()\n");
 #endif
 
-    int nbytes = message.count();               /* send_message(message) */
-    if (nbytes > 0 && m_jack_data.valid_buffer())
+    if (m_jack_data.valid_buffer())
     {
+        if (! send_message(message))
+        {
+            errprint("JACK api_play failed");
+        }
+    }
+}
+
+/**
+ *  Sends a JACK MIDI output message.  It writes the full message size and
+ *  the message itself to the JACK ring buffer.
+ *
+ * \param message
+ *      Provides the MIDI message object, which contains the bytes to send.
+ *
+ * \return
+ *      Returns true if the buffer message and buffer size seem to be written
+ *      correctly.
+ */
+
+bool
+midi_jack::send_message (const midi_message & message)
+{
+    int nbytes = message.count();
+    bool result = nbytes > 0;
+    if (result)
+    {
+#ifdef PLATFORM_DEBUG_TMI
+        message.show();
+#endif
         int count1 = jack_ringbuffer_write
         (
-            m_jack_data.m_jack_buffmessage,
-            message.array(),                    /* (const char *) &m[0] */
-            message.count()
+            m_jack_data.m_jack_buffmessage, message.array(), message.count()
         );
         int count2 = jack_ringbuffer_write
         (
             m_jack_data.m_jack_buffsize, (char *) &nbytes, sizeof nbytes
         );
-        if ((count1 <= 0) || (count2 <= 0))
-        {
-            errprint("JACK api_play failed");
-        }
+        apiprint("send_message", "jack");
+        result = (count1 > 0) && (count2 > 0);
     }
+    return result;
 }
 
 /**
@@ -873,7 +815,8 @@ midi_jack::api_flush ()
  * \param tick
  *      Provides the tick value to continue from.
  *
- *  The param beats is currently unused.
+ * \param beats
+ *      The parameter "beats" is currently unused.
  */
 
 void
@@ -893,12 +836,13 @@ midi_jack::api_continue_from (midipulse tick, midipulse /*beats*/)
 
     /*
      * New code to work like the ALSA version, needs testing.  Related to
-     * issue #67.
+     * issue #67.  However, the ALSA version sends Continue, flushes, and
+     * then sends Song Position, so we will match that here.
      */
 
-    send_byte(EVENT_MIDI_SONG_POS);
-    api_flush();
     send_byte(EVENT_MIDI_CONTINUE);
+    api_flush();                                /* currently does nothing   */
+    send_byte(EVENT_MIDI_SONG_POS);
     apiprint("api_continue_from", "jack");
 }
 
@@ -934,13 +878,19 @@ midi_jack::api_stop ()
  *  Sends a MIDI clock event.
  *
  * \param tick
- *      The value of the tick to use, but currently unused.
+ *      The value of the tick to use.
  */
 
 void
 midi_jack::api_clock (midipulse tick)
 {
-    send_byte(EVENT_MIDI_CLOCK, tick);
+    if (tick >= 0)
+    {
+#ifdef PLATFORM_DEBUG_TMI
+        midibase::show_clock("JACK", tick);
+#endif
+    }
+    send_byte(EVENT_MIDI_CLOCK);
 }
 
 /**
@@ -961,51 +911,40 @@ midi_jack::api_clock (midipulse tick)
  *      Provides one of the following values (though any byte can be sent):
  *
  *          -   EVENT_MIDI_SONG_POS
- *          -   EVENT_MIDI_CLOCK. The tick value is needed if...
+ *          -   EVENT_MIDI_CLOCK. The tick value is not needed.
  *          -   EVENT_MIDI_START.  The tick value is not needed.
  *          -   EVENT_MIDI_CONTINUE.  The tick value is needed if...
  *          -   EVENT_MIDI_STOP.  The tick value is not needed.
- *
- * \param tick
- *      Provides the tick value, if applicable.  We will eventually implement
- *      this, along with an "impossible" default value that means "ignore the
- *      tick".
  */
 
 void
-midi_jack::send_byte (midibyte evbyte, midipulse tick)
+midi_jack::send_byte (midibyte evbyte)
 {
     midi_message message;
     message.push(evbyte);
-    int nbytes = 1;
-
-    if (is_null_midipulse(tick))
-    {
-        // TODO
-    }
-
     if (m_jack_data.valid_buffer())
     {
-        int count1 = jack_ringbuffer_write
-        (
-            m_jack_data.m_jack_buffmessage, message.array(), 1
-        );
-        int count2 = jack_ringbuffer_write
-        (
-            m_jack_data.m_jack_buffsize, (char *) &nbytes, sizeof nbytes
-        );
-        if ((count1 <= 0) || (count2 <= 0))
+        bool ok = send_message(message);
+        if (! ok)
         {
             errprint("JACK send_byte() failed");
         }
     }
 }
 
+/**
+ *  Empty body for setting PPQN.
+ */
+
 void
 midi_jack::api_set_ppqn (int /*ppqn*/)
 {
     // No code needed yet
 }
+
+/**
+ *  Empty body for setting BPM.
+ */
 
 void
 midi_jack::api_set_beats_per_minute (midibpm /*bpm*/)
@@ -1167,19 +1106,11 @@ midi_jack::close_client ()
 }
 
 /**
- *  Connects two named JACK ports.  First, we register the local port.  If
- *  this is nominally a local input port, it is really doing output, and this
- *  is the source-port name.  If this is nominally a local output port, it is
- *  really accepting input, and this is the destination-port name.
- *
- *  This code is disabled for now because the order of JACK setup calls that
- *  works is
- *
- *      -   jack_port_register()
- *      -   jack_activate()
- *      -   jack_connect()
- *
- *  So we have to break this up.
+ *  Connects two named JACK ports, but only if they are not virtual/manual
+ *  ports.  First, we register the local port.  If this is nominally a local
+ *  input port, it is really doing output, and this is the source-port name.
+ *  If this is nominally a local output port, it is really accepting input,
+ *  and this is the destination-port name.
  *
  * \param input
  *      Indicates true if the port to register and connect is an input port,
@@ -1417,9 +1348,6 @@ midi_in_jack::midi_in_jack (midibus & parentbus, midi_info & masterinfo)
      * Currently, we cannot initialize here because the clientname is empty.
      * It is retrieved in api_init_in().
      *
-     * if (multi_client())
-     *     (void) initialize(clientname);
-     *
      * Hook in the input data.  The JACK port pointer will get set in
      * api_init_in() or api_init_out() when the port is registered.
      */
@@ -1457,12 +1385,23 @@ midi_in_jack::api_poll_for_midi ()
  *  Gets a MIDI event.  This implementation gets a midi_message off the front
  *  of the queue and converts it to a Sequencer64 event.
  *
+ * \change ca 2017-11-04
+ *      Issue #4 "Bug with Yamaha PSR in JACK native mode" in the
+ *      sequencer64-packages project has been fixed.  For now, we ignore
+ *      system messages.  Yamaha keyboards like my PSS-790 constantly emit
+ *      active sensing messages (0xfe) which are not logged, and the previous
+ *      event (typically pitch wheel 0xe0 0x0 0x40) is continually emitted.
+ *      One result (we think) is odd artifacts in the seqroll when recording
+ *      and passing through.
+ *
  * \param inev
  *      Provides the destination for the MIDI event.
  *
  * \return
  *      Returns true if a MIDI event was obtained, indicating that the return
- *      parameter can be used.
+ *      parameter can be used.  Note that we force a value of false for all
+ *      system messages at this time; they cannot yet be handled gracefully in
+ *      the native JACK implementation.
  */
 
 bool
@@ -1478,16 +1417,6 @@ midi_in_jack::api_get_midi_event (event * inev)
         {
             inev->set_status_keep_channel(mm[0]);
             inev->set_data(mm[1], mm[2]);
-
-            /*
-             *  Some keyboards send Note On with velocity 0 for Note Off, so
-             *  we take care of that situation here by creating a Note Off
-             *  event, with the channel nybble preserved. Note that we call
-             *  event::set_status_keep_channel() instead of using stazed's
-             *  set_status function with the "record" parameter.  Also, we
-             *  have to mask in the actual channel number.
-             */
-
             if (inev->is_note_off_recorded())
             {
                 midibyte channel = mm[0] & EVENT_GET_CHAN_MASK;
@@ -1502,7 +1431,11 @@ midi_in_jack::api_get_midi_event (event * inev)
         }
         else
         {
-            infoprint("SysEx information encountered?");
+            /*
+             * TMI: infoprint("No-data system information encountered?");
+             *
+             *  The Yamaha PSS-790 is constantly emitting Active Sense events.
+             */
 
 #ifdef USE_SYSEX_PROCESSING                 /* currently disabled           */
 
@@ -1518,6 +1451,48 @@ midi_in_jack::api_get_midi_event (event * inev)
             {
                 inev->restart_sysex();      /* set up for sysex if needed   */
                 sysex = inev->append_sysex(buffer, bytes);
+            }
+#else
+            /*
+             * For now, ignore certain messages; they're not handled by the
+             * perform object.  Could be handled there, but saves some
+             * processing time if done here.  Also could move the output code
+             * to perform so it is available for frameworks beside JACK.
+             */
+
+            midibyte st = mm[0];
+            if (rc().verbose_option())
+            {
+                static int s_count = 0;
+                char c = '.';
+                if (st == EVENT_MIDI_CLOCK)
+                    c = 'C';
+                else if (st == EVENT_MIDI_ACTIVE_SENSE)
+                    c = 'S';
+                else if (st == EVENT_MIDI_RESET)
+                    c = 'R';
+                else if (st == EVENT_MIDI_START)
+                    c = '>';
+                else if (st == EVENT_MIDI_CONTINUE)
+                    c = '|';
+                else if (st == EVENT_MIDI_STOP)
+                    c = '<';
+
+                (void) putchar(c);
+                if (++s_count == 80)
+                {
+                    s_count = 0;
+                    (void) putchar('\n');
+                }
+                fflush(stdout);
+            }
+            if (st == EVENT_MIDI_ACTIVE_SENSE || st == EVENT_MIDI_RESET)
+            {
+                result = false;             /* sequencer64-packages #4      */
+            }
+            else
+            {
+                inev->set_status(st);
             }
 #endif
         }
@@ -1559,9 +1534,6 @@ midi_out_jack::midi_out_jack (midibus & parentbus, midi_info & masterinfo)
     /*
      * Currently, we cannot initialize here because the clientname is empty.
      * It is retrieved in api_init_out().
-     *
-     * if (multi_client())
-     *     (void) initialize(clientname);
      */
 }
 
@@ -1573,34 +1545,6 @@ midi_out_jack::midi_out_jack (midibus & parentbus, midi_info & masterinfo)
 midi_out_jack::~midi_out_jack ()
 {
     // No code yet
-}
-
-/**
- *  Sends a JACK MIDI output message.  It writes the full message size and
- *  the message itself to the JACK ring buffer.
- *
- * \param message
- *      Provides the MIDI message object, which contains the bytes to send.
- *
- * \return
- *      Returns true if the buffer message and buffer size seem to be written
- *      correctly.
- */
-
-bool
-midi_out_jack::send_message (const midi_message & message)
-{
-    int nbytes = message.count();
-    int count1 = jack_ringbuffer_write
-    (
-        m_jack_data.m_jack_buffmessage, message.array(), message.count()
-    );
-    int count2 = jack_ringbuffer_write
-    (
-        m_jack_data.m_jack_buffsize, (char *) &nbytes, sizeof(nbytes)
-    );
-    apiprint("send_message", "jack");
-    return (count1 > 0) && (count2 > 0);
 }
 
 }           // namespace seq64

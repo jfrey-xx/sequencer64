@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-09-19
- * \updates       2017-08-06
+ * \updates       2018-01-04
  * \license       GNU GPLv2 or above
  *
  *  This container now can indicate if certain Meta events (time-signaure or
@@ -327,7 +327,7 @@ void
 event_list::merge (event_list & el, bool presort)
 {
     if (presort)
-        el.m_events.sort();
+        el.sort();                          // el.m_events.sort();
 
     m_events.merge(el.m_events);
 }
@@ -432,6 +432,19 @@ event_list::verify_and_link (midipulse slength)
                     eoff.get_note() == eon.get_note() && ! eoff.is_marked()
                 )
                 {
+                    /*
+                     * THINK ABOUT IT:  If we're in legacy merge mode for a
+                     * loop, the Note Off is actually earlier than the Note
+                     * On.  And in replace mode, the Note On is cleared,
+                     * leaving us with a dangling Note Off event.
+                     *
+                     * We should consider, in both modes, automatically adding
+                     * the Note Off at the end of the loop and ignoring the
+                     * next note off on the same note from the keyboard.
+                     *
+                     * Careful!
+                     */
+
                     eon.link(&eoff);                    /* link + mark */
                     eoff.link(&eon);
                     eon.mark();

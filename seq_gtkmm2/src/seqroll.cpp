@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-03
+ * \updates       2018-01-21
  * \license       GNU GPLv2 or above
  *
  *  There are a large number of existing items to discuss.  But for now let's
@@ -160,7 +160,6 @@ seqroll::seqroll
     m_selected              (),
     m_seq                   (seq),
     m_seqkeys_wid           (seqkeys_wid),
-    m_fruity_interaction    (),
     m_pos                   (pos),
     m_zoom                  (zoom),
     m_snap                  (snap),
@@ -202,7 +201,7 @@ seqroll::seqroll
     m_cc                    (0)
 {
     m_ppqn = choose_ppqn(ppqn);
-    clear_old();
+    m_old.clear();
 
     /*
      * These calls don't seem to work in the constructor.  They do in
@@ -303,6 +302,30 @@ seqroll::update_sizes ()
 }
 
 /**
+ *  Sets the horizontal scroll value according to the current value of the
+ *  horizontal scroll-bar.
+ */
+
+void
+seqroll::set_scroll_x ()
+{
+    m_scroll_offset_ticks = int(m_hadjust.get_value());
+    m_scroll_offset_x = m_scroll_offset_ticks / m_zoom;
+}
+
+/**
+ *  Sets the vertical scroll value according to the current value of the
+ *  vertical scroll-bar.
+ */
+
+void
+seqroll::set_scroll_y ()
+{
+    m_scroll_offset_key = int(m_vadjust.get_value());
+    m_scroll_offset_y = m_scroll_offset_key * c_key_y;
+}
+
+/**
  *  Change the horizontal scrolling offset and redraw.  Roughly similar to
  *  seqevent::change_horz().
  */
@@ -310,16 +333,7 @@ seqroll::update_sizes ()
 void
 seqroll::change_horz ()
 {
-    m_scroll_offset_ticks = int(m_hadjust.get_value());
-    m_scroll_offset_x = m_scroll_offset_ticks / m_zoom;
-
-    /*
-     * Not needed:
-     *
-     * if (m_ignore_redraw)
-     *     return;
-     */
-
+    set_scroll_x();
     update_and_draw(true);
 }
 
@@ -330,16 +344,7 @@ seqroll::change_horz ()
 void
 seqroll::change_vert ()
 {
-    m_scroll_offset_key = int(m_vadjust.get_value());
-    m_scroll_offset_y = m_scroll_offset_key * c_key_y;
-
-    /*
-     * Not needed:
-     *
-     * if (m_ignore_redraw)
-     *     return;
-     */
-
+    set_scroll_y();
     update_and_draw(true);
 }
 
@@ -352,16 +357,7 @@ seqroll::change_vert ()
 void
 seqroll::reset ()
 {
-    m_scroll_offset_ticks = int(m_hadjust.get_value());
-    m_scroll_offset_x = m_scroll_offset_ticks / m_zoom;
-
-    /*
-     * Not needed:
-     *
-     * if (m_ignore_redraw)
-     *     return;
-     */
-
+    set_scroll_x();
     update_sizes();
     update_and_draw();
 }
@@ -376,8 +372,7 @@ seqroll::reset ()
 void
 seqroll::redraw ()
 {
-    m_scroll_offset_ticks = int(m_hadjust.get_value());
-    m_scroll_offset_x = m_scroll_offset_ticks / m_zoom;
+    set_scroll_x();
     update_and_draw(true);
 }
 
@@ -408,13 +403,6 @@ seqroll::update_and_draw (int force)
 void
 seqroll::redraw_events ()
 {
-    /*
-     * Not needed:
-     *
-     * if (m_ignore_redraw)
-     *     return;
-     */
-
     update_pixmap();
     force_draw();
 }
@@ -992,50 +980,48 @@ seqroll::idle_redraw ()
 void
 seqroll::draw_selection_on_window ()
 {
-    const int thickness = 1;                /* normally 1               */
-    int x = 0, y = 0, w = 0, h = 0;         /* used throughout          */
-    set_line(Gdk::LINE_SOLID, thickness);   /* set_line_attributes()    */
-    if (select_action())                    /* select, grow, drop       */
+    const int thickness = 1;                    /* normally 1               */
+    int x = 0, y = 0, w = 0, h = 0;             /* used throughout          */
+    set_line(Gdk::LINE_SOLID, thickness);       /* set_line_attributes()    */
+    if (select_action())                        /* select, grow, drop       */
     {
-        x = m_old.x;
-        y = m_old.y;
-        w = m_old.width;
-        h = m_old.height;
-        draw_drawable(x, y, x, y, w + 1, h + 1);    /* erase old rectangle */
+        m_old.get(x, y, w, h);                      /* get rectangle        */
+        draw_drawable(x, y, x, y, w + 1, h + 1);    /* erase old rectangle  */
     }
     if (selecting())
     {
-        xy_to_rect(m_drop_x, m_drop_y, m_current_x, m_current_y, x, y, w, h);
+        rect::xy_to_rect_get
+        (
+            m_drop_x, m_drop_y, m_current_x, m_current_y, x, y, w, h
+        );
         x -= m_scroll_offset_x;
         y -= m_scroll_offset_y;
         h += c_key_y;
     }
-    if (drop_action())                      /* move, paste              */
+    if (drop_action())                              /* move, paste          */
     {
-        x = m_selected.x + m_current_x - m_drop_x - m_scroll_offset_x;
-        y = m_selected.y + m_current_y - m_drop_y - m_scroll_offset_y;
-        w = m_selected.width;
-        h = m_selected.height;
+        m_selected.get(x, y, w, h);                 /* selected rectangle   */
+        x += m_current_x - m_drop_x - m_scroll_offset_x;
+        y += m_current_y - m_drop_y - m_scroll_offset_y;
     }
     if (growing())
     {
         int delta_x = m_current_x - m_drop_x;
-        x = m_selected.x - m_scroll_offset_x;
-        y = m_selected.y - m_scroll_offset_y;
-        w = delta_x + m_selected.width;
-        h = m_selected.height;
+        m_selected.get(x, y, w, h);                 /* selected rectangle   */
+        x -= m_scroll_offset_x;
+        y -= m_scroll_offset_y;
+        w += delta_x;
         if (w < 1)
             w = 1;
     }
+
 #ifdef SEQ64_USE_BLACK_SELECTION_BOX
     draw_rectangle(black_paint(), x, y, w, h, false);
 #else
     draw_rectangle(dark_orange(), x, y, w, h, false);
 #endif
-    m_old.x = x;
-    m_old.y = y;
-    m_old.width = w;
-    m_old.height = h;
+
+    m_old.set(x, y, w, h);
 }
 
 /**
@@ -1100,68 +1086,6 @@ seqroll::convert_tn (midipulse tick, int note, int & x, int & y)
 }
 
 /**
- *  Converts rectangle corner coordinates to a starting coordinate, plus a
- *  width and height.  This function checks the mins / maxes, and then fills
- *  in the x, y, width, and height values.
- *
- *  We should refactor this function to use the utility class seqroll::rect as
- *  the destination for the conversion.
- *
- * \param x1
- *      The x value of the first corner.
- *
- * \param y1
- *      The y value of the first corner.
- *
- * \param x2
- *      The x value of the second corner.
- *
- * \param y2
- *      The y value of the second corner.
- *
- * \param [out] x
- *      The destination for the x value in pixels.
- *
- * \param [out] y
- *      The destination for the y value in pixels.
- *
- * \param [out] w
- *      The destination for the rectangle width in pixels.
- *
- * \param [out] h
- *      The destination for the rectangle height value in pixels.
- */
-
-void
-seqroll::xy_to_rect
-(
-    int x1, int y1, int x2, int y2,
-    int & x, int & y, int & w, int & h
-)
-{
-    if (x1 < x2)
-    {
-        x = x1;
-        w = x2 - x1;
-    }
-    else
-    {
-        x = x2;
-        w = x1 - x2;
-    }
-    if (y1 < y2)
-    {
-        y = y1;
-        h = y2 - y1;
-    }
-    else
-    {
-        y = y2;
-        h = y1 - y2;
-    }
-}
-
-/**
  *  Converts a tick/note box to an x/y rectangle.
  *
  *  We should refactor this function to use the utility class seqroll::rect as
@@ -1202,12 +1126,48 @@ seqroll::convert_tn_box_to_rect
     int x1, y1, x2, y2;
     convert_tn(tick_s, note_h, x1, y1);     /* convert box to X,Y values */
     convert_tn(tick_f, note_l, x2, y2);
-    xy_to_rect(x1, y1, x2, y2, x, y, w, h);
+    rect::xy_to_rect_get(x1, y1, x2, y2, x, y, w, h);
     h += c_key_y;
 }
 
 /**
+ *  Converts a tick/note box to an x/y rectangle.
+ *
+ *  We should refactor this function to use the utility class seqroll::rect as
+ *  the destination for the conversion.
+ *
+ * \param tick_s
+ *      The starting tick of the rectangle.
+ *
+ * \param tick_f
+ *      The finishing tick of the rectangle.
+ *
+ * \param note_h
+ *      The high note of the rectangle.
+ *
+ * \param note_l
+ *      The low note of the rectangle.
+ *
+ * \param [out] r
+ *      The destination rectangle for the values in pixels.
+ */
+
+void
+seqroll::convert_tn_box_to_rect
+(
+    midipulse tick_s, midipulse tick_f, int note_h, int note_l, rect & r
+)
+{
+    int x1, y1, x2, y2;
+    convert_tn(tick_s, note_h, x1, y1);     /* convert box to X,Y values */
+    convert_tn(tick_f, note_l, x2, y2);
+    rect::xy_to_rect(x1, y1, x2, y2, r);
+    r.incr_height(c_key_y);
+}
+
+/**
  *  A convenience function wrapping a common call to convert_tn_box_to_rect().
+ *  We made a version taking a reference to an seq64::rect.
  *
  * \param tick_s
  *      The starting tick of the rectangle.
@@ -1228,11 +1188,7 @@ seqroll::convert_sel_box_to_rect
     midipulse tick_s, midipulse tick_f, int note_h, int note_l
 )
 {
-    convert_tn_box_to_rect
-    (
-        tick_s, tick_f, note_h, note_l,
-        m_selected.x, m_selected.y, m_selected.width, m_selected.height
-    );
+    convert_tn_box_to_rect(tick_s, tick_f, note_h, note_l, m_selected);
 }
 
 /**
@@ -1283,8 +1239,8 @@ seqroll::start_paste ()
     int note_h, note_l;
     m_seq.get_clipboard_box(tick_s, note_h, tick_f, note_l);
     convert_sel_box_to_rect(tick_s, tick_f, note_h, note_l);
-    m_selected.x += m_drop_x;
-    m_selected.y = m_drop_y;
+    m_selected.x_incr(m_drop_x);
+    m_selected.y(m_drop_y);
 }
 
 /**
@@ -1298,12 +1254,7 @@ seqroll::complete_paste (int x, int y)
     int note;
     convert_xy(m_current_x, m_current_y, tick, note);
     m_paste = false;
-
-    /*
-     * m_seq.push_undo();       // Why commented out?
-     */
-
-    m_seq.paste_selected(tick, note);
+    m_seq.paste_selected(tick, note);   /* does push_undo() now */
 }
 
 /**
@@ -1354,8 +1305,8 @@ seqroll::snap_x (int & x)
 void
 seqroll::move_selection_box (int dx, int dy)
 {
-    int x = m_old.x + dx * m_snap / m_zoom;
-    int y = m_old.y + dy * c_key_y;
+    int x = m_old.x() + dx * m_snap / m_zoom;
+    int y = m_old.y() + dy * c_key_y;
     set_current_offset_x_y(x, y);
 
 	int note;
@@ -1447,10 +1398,10 @@ seqroll::grow_selected_notes (int dx)
  */
 
 void
-seqroll::set_adding (bool adding)
+seqroll::set_adding (bool isadding)
 {
-    m_adding = adding;
-    if (adding)
+    m_adding = isadding;
+    if (isadding)
         get_window()->set_cursor(Gdk::Cursor(Gdk::PENCIL));
     else
         get_window()->set_cursor(Gdk::Cursor(Gdk::LEFT_PTR));
@@ -1472,26 +1423,21 @@ clamp (long val, long low, long hi)
  */
 
 void
-seqroll::update_mouse_pointer (bool adding)
+seqroll::update_mouse_pointer (bool isadding)
 {
     midipulse droptick;
     int dropnote;
     convert_xy(current_x(), current_y(), droptick, dropnote);
+
     midipulse s, f;                     // start, end;
     int note;                           // midibyte
     if (normal_action())
-    {
         get_window()->set_cursor(Gdk::Cursor(Gdk::LEFT_PTR));
-    }
-    else if (adding)
-    {
+    else if (isadding)
         get_window()->set_cursor(Gdk::Cursor(Gdk::PENCIL));
-    }
-    if
-    (
-         m_seq.intersect_notes(droptick, dropnote, s, f, note) &&
-         note == dropnote
-    )
+
+    bool intersect = m_seq.intersect_notes(droptick, dropnote, s, f, note);
+    if (intersect && (note == dropnote))
     {
         long hsize = m_seq.handle_size(s, f);
         if (droptick >= (f - hsize) && droptick <= f)
@@ -1527,17 +1473,22 @@ seqroll::add_note (midipulse tick, int note, bool paint)
 {
 #ifdef SEQ64_STAZED_CHORD_GENERATOR
     if (m_chord > 0)
-        add_chord(tick, note);
+        return m_seq.add_chord(m_chord, tick, note_off_length(), note);
     else
 #endif
-        m_seq.add_note(tick, note_off_length(), note, paint);
-
-    return true;
+        return m_seq.add_note(tick, note_off_length(), note, paint);
 }
 
 /*
  *  Encapsulates some setup behavior for the fruity and seq24
  *  on_button_press_event() handlers.
+ *
+ * \warning
+ *      The snapping of the x-value means that, even if the mouse is
+ *      just to the right of the handle-size range (16 pixels) of the note,
+ *      and the "middle" pointer is shown, the left handle becomes activated,
+ *      and the note will grow in "fruity" mode.  This also affects the right
+ *      handle in many cases!  See GitHub issue #
  *
  * \param ev
  *      Provides the button-press event to process.
@@ -1562,14 +1513,14 @@ seqroll::button_press_initial
 )
 {
     bool needs_update = false;
-    snapped_x = scroll_offset_x(int(ev->x));
-    snapped_y = scroll_offset_y(int(ev->y));
+    snapped_x = scroll_offset_x(int(ev->x));        /* side-effect          */
+    snapped_y = scroll_offset_y(int(ev->y));        /* side-effect          */
     norm_x = snapped_x;                             /* side-effect          */
     grab_focus();
     snap_x(snapped_x);                              /* side-effect          */
     snap_y(snapped_y);                              /* side-effect          */
     set_current_drop_y(snapped_y);                  /* y is always snapped  */
-    clear_old();
+    m_old.clear();
     if (m_paste)                /* ctrl-v pressed, ready for click to paste */
     {
         complete_paste(snapped_x, snapped_y);
@@ -1594,10 +1545,17 @@ seqroll::align_selection
     m_moving_init = true;
     get_selected_box(tick_s, note_h, tick_f, note_l);
 
-    int adjusted_selected_x = m_selected.x;
+    int adjusted_selected_x = m_selected.x();
     snap_x(adjusted_selected_x);
-    m_move_snap_offset_x = m_selected.x - adjusted_selected_x;
-    snap_x(m_selected.x);
+    m_move_snap_offset_x = m_selected.x() - adjusted_selected_x;
+
+    /*
+     * Slightly clumsy.
+     */
+
+    int sx = m_selected.x();
+    snap_x(sx);
+    m_selected.x(sx);
     set_current_drop_x(snapped_x);
 }
 
@@ -1755,23 +1713,15 @@ seqroll::button_release (GdkEventButton * ev)
     int delta_y = m_current_y - m_drop_y;
     midipulse delta_tick;
     int delta_note;
-
-    /*
-     * Stazed fix to turn play off.
-     */
-
-    m_seqkeys_wid.set_listen_button_release(ev);
-
+    m_seqkeys_wid.set_listen_button_release(ev);    /* stazed: turn play off */
     if (SEQ64_CLICK_LEFT(ev->button))
     {
         if (m_selecting)
         {
             int x, y, w, h;
-            xy_to_rect
+            rect::xy_to_rect_get
             (
-                m_drop_x, m_drop_y,
-                m_current_x, m_current_y,
-                x, y, w, h
+                m_drop_x, m_drop_y, m_current_x, m_current_y, x, y, w, h
             );
             convert_xy(x, y, tick_s, note_h);
             convert_xy(x + w, y + h, tick_f, note_l);
@@ -2007,23 +1957,7 @@ seqroll::on_button_press_event (GdkEventButton * ev)
         perf().set_follow_transport(false);
         m_trans_button_press = true;
     }
-
-    bool result;
-    if (rc().interaction_method() == e_seq24_interaction)
-        result = button_press(ev);
-    else
-        result = m_fruity_interaction.on_button_press_event(ev, *this);
-
-    /*
-     * MODIFY FIX?  Why modify just because of a button_press?  If we leave this
-     * active, then even just selecting notes makes the application prompt for
-     * saving upon exit.
-     *
-     * if (result)
-     *     perf().modify();
-     */
-
-    return result;
+    return button_press(ev);
 }
 
 /**
@@ -2045,12 +1979,7 @@ seqroll::on_button_press_event (GdkEventButton * ev)
 bool
 seqroll::on_button_release_event (GdkEventButton * ev)
 {
-    bool result;
-    if (rc().interaction_method() == e_seq24_interaction)
-        result = button_release(ev);
-    else
-        result = m_fruity_interaction.on_button_release_event(ev, *this);
-
+    bool result = button_release(ev);
     perf().set_follow_transport(m_transport_follow);
     m_trans_button_press = false;
     return result;
@@ -2071,21 +2000,7 @@ seqroll::on_button_release_event (GdkEventButton * ev)
 bool
 seqroll::on_motion_notify_event (GdkEventMotion * ev)
 {
-    bool result;
-    if (rc().interaction_method() == e_seq24_interaction)
-        result = motion_notify(ev);
-    else
-        result = m_fruity_interaction.on_motion_notify_event(ev, *this);
-
-    /*
-     * MODIFY FIX?  If we leave this active, then even just selecting notes
-     * makes the application prompt for saving upon exit.
-     *
-     * if (result)
-     *    perf().modify();
-     */
-
-    return result;
+    return motion_notify(ev);
 }
 
 /**
@@ -2292,23 +2207,8 @@ seqroll::on_key_press_event (GdkEventKey * ev)
                 if (m_paste)
                     complete_paste(m_current_x, m_current_y);
 
-                /*
-                 * Do we just want to call clear_flags() here?
-                 *
-                 *  if (m_growing)
-                 *      m_growing = false;
-                 *
-                 *  if (m_moving)
-                 *      m_moving = false;
-                 *
-                 *  m_selecting = false;
-                 *
-                 * Do we want to clear the selection?  We could paste them
-                 * again somewhere else.
-                 */
-
                 clear_flags();
-                clear_selected();
+                m_selected.clear();
                 m_seq.unselect();
                 result = true;
             }

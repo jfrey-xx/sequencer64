@@ -27,7 +27,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-08-07
+ * \updates       2018-02-03
  * \license       GNU GPLv2 or above
  *
  *  The main window is known as the "Patterns window" or "Patterns
@@ -45,6 +45,7 @@
 #include "seq64_features.h"             /* feature macros for the app   */
 #include "app_limits.h"                 /* SEQ64_USE_DEFAULT_PPQN       */
 #include "gui_window_gtk2.hpp"          /* seq64::qui_window_gtk2       */
+#include "mutex.hpp"                    /* seq64::mutex, automutex      */
 #include "perform.hpp"                  /* seq64::perform and callback  */
 
 /**
@@ -88,9 +89,6 @@ namespace Gtk
     class Table;                /* Grid is not available in gtkmm-2.4   */
 #endif
 
-#if defined SEQ64_STAZED_MENU_BUTTONS
-    class ToggleButton;
-#endif
 }
 
 /*
@@ -116,6 +114,20 @@ class mainwnd : public gui_window_gtk2, public performcallback
 private:
 
     /**
+     *  Instead of having two save options, we now have three.
+     */
+
+    typedef enum
+    {
+        FILE_SAVE_AS_NORMAL,
+        FILE_SAVE_AS_EXPORT_SONG,
+        FILE_SAVE_AS_EXPORT_MIDI
+
+    } SaveOption;
+
+private:
+
+    /**
      *  This small array holds the "handles" for the pipes need to intercept
      *  the system signals SIGINT and SIGUSR1, so that the application shuts
      *  down gracefully when aborted.
@@ -136,17 +148,12 @@ private:
 #endif
 
     /**
-     *  A repository for tooltips.
-     */
-
-    Gtk::Tooltips * m_tooltips;
-
-    /**
      *  Theses objects support the menu and its sub-menus.
      */
 
     Gtk::MenuBar * m_menubar;           /**< The whole menu bar.        */
     Gtk::Menu * m_menu_file;            /**< The File menu entry.       */
+    Gtk::Menu * m_menu_recent;          /**< File/Recent menu popup.    */
     Gtk::Menu * m_menu_edit;            /**< The (new) Edit menu entry. */
     Gtk::Menu * m_menu_view;            /**< The View menu entry.       */
     Gtk::Menu * m_menu_help;            /**< The Help menu entry.       */
@@ -268,6 +275,14 @@ private:
     Gtk::SpinButton * m_spinbutton_ss;  /**< Screenset adjustment.          */
 
     /**
+     *  Saves the active screenset number so that we can better detect changes
+     *  from both the perform object and the screenset spinbutton, which
+     *  updates the peform object.
+     */
+
+    int m_current_screenset;
+
+    /**
      *  Is this the bar at the top that shows moving squares, also known as
      *  "pills"?  Why yes, it is.
      */
@@ -307,6 +322,13 @@ private:
     Gtk::Image * m_image_play;
 
     /**
+     *  This button is the panic button, which is adapted from Oli Kester's
+     *  kepler34 project.
+     */
+
+    Gtk::Button * m_button_panic;
+
+    /**
      *  This button is the learn button, otherwise known as the "L"
      *  button.
      */
@@ -334,8 +356,8 @@ private:
     Gtk::Button * m_button_tempo_log;
 
     /**
-     *  Implements the new red tempo-record button.  One should be able to
-     *  left click on it to record the current tempo as a tempo event, and
+     *  Implements the new tempo-record button.  One should be able to left
+     *  click on it to record the current tempo as a tempo event, and
      *  right-click to enable auto-record.
      */
 
@@ -377,12 +399,53 @@ private:
 
 #endif
 
+#ifdef SEQ64_SONG_RECORDING
+
+    /**
+     *  Implements Oli Kester's Kepler34 Song-recording feature.
+     */
+
+    Gtk::ToggleButton * m_button_song_record;
+
+    /**
+     *  Implements Oli Kester's Kepler34 Song-recording snap feature.
+     */
+
+    Gtk::ToggleButton * m_button_song_snap;
+
+    /**
+     *  Indicates if song recording is active.
+     */
+
+    bool m_is_song_recording;
+
+    /**
+     *  Indicates if song-recording snap is active.
+     */
+
+    bool m_is_snap_recording;
+
+#endif  // SEQ64_SONG_RECORDING
+
     /**
      *  This new item shows the current time into the song performance.
      *  Long overdue, actually!
      */
 
     Gtk::Label * m_tick_time;
+
+    /**
+     *  This button will toggle the m_tick_time_as_bbt member.
+     */
+
+    Gtk::Button * m_button_time_type;
+
+    /**
+     *  Indicates whether to show the time as bar:beats:ticks or as
+     *  hours:minutes:seconds.  The default is true:  bar:beats:ticks.
+     */
+
+    bool m_tick_time_as_bbt;
 
     /**
      *  The spin/adjustment controls for the BPM (beats-per-minute) value.
@@ -578,9 +641,14 @@ private:
     void adj_callback_ss ();
     void adj_callback_bpm ();
     void edit_callback_notepad ();
+    void set_wid_label (int ss, int block = 0);
+    void update_screenset ();
     void update_markers (midipulse tick);
     void reset ();
+    void reset_window ();
+#ifdef SEQ64_PAUSE_SUPPORT
     void set_play_image (bool isrunning);
+#endif
     void set_songlive_image (bool issong);
     void start_playing ();
     void pause_playing ();
@@ -588,7 +656,7 @@ private:
     void toggle_playing ();
 
     bool timer_callback ();
-    int set_screenset (int screenset, bool setperf = false);
+    int set_screenset (int screenset);
 
 #ifdef SEQ64_MAINWND_TAP_BUTTON
 
@@ -600,7 +668,29 @@ private:
 
     void tempo_log ();
     void toggle_tempo_record ();
+    void toggle_time_format ();
     void queue_it ();
+
+#ifdef SEQ64_SONG_RECORDING
+    void set_song_record ();
+    void toggle_song_record ();
+    void toggle_song_snap ();
+    void set_song_playback (bool playsong);
+
+    void song_record_snap (bool snap)
+    {
+        perf().song_record_snap(snap);
+    }
+#endif
+
+    /**
+     *  Pushes the panic button.
+     */
+
+    void panic ()
+    {
+        perf().panic();
+    }
 
     /**
      *  Toggle the group-learn status.  Simply forwards the call to
@@ -650,7 +740,9 @@ private:
 #endif
 
     void update_window_title ();
-    void toLower (std::string &);       // isn't this part of std::string?
+    void update_recent_files_menu ();
+    void load_recent_file (int index);
+    void toLower (std::string &);
 
     /**
      *  A callback function for the File / New menu entry.
@@ -687,7 +779,7 @@ private:
 
     void set_song_mute (perform::mute_op_t op)
     {
-        perf().set_song_mute(op);       // and modifies
+        perf().set_song_mute(op);
     }
 
 #if defined SEQ64_MULTI_MAINWID
@@ -704,7 +796,7 @@ private:
     void build_info_dialog ();
     int query_save_changes ();
     void new_open_error_dialog ();
-    void file_save_as (bool do_export = false);
+    void file_save_as (SaveOption option = FILE_SAVE_AS_NORMAL);
     void file_exit ();
     void new_file ();
     bool save_file ();

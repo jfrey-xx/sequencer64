@@ -1,11 +1,12 @@
 /**
  * \file          rtmidi_types.cpp
  *
- *    Classes that use to be structs.
+ *    Classes that used to be structs.
  *
+ * \library       sequencer64 application
  * \author        Gary P. Scavone; severe refactoring by Chris Ahlstrom
  * \date          2016-12-01
- * \updates       2017-02-20
+ * \updates       2018-01-28
  * \license       See the rtexmidi.lic file.  Too big for a header file.
  *
  *  Provides some basic types for the (heavily-factored) rtmidi library, very
@@ -36,6 +37,34 @@ midi_message::midi_message ()
     m_timestamp (0.0)
 {
     // Empty body
+}
+
+/**
+ *  Shows the bytes in a message, for trouble-shooting.
+ */
+
+void
+midi_message::show () const
+{
+    if (m_bytes.empty())
+    {
+        fprintf(stderr, "midi_message: empty\n");
+        fflush(stderr);
+    }
+    else
+    {
+        fprintf(stderr, "midi_message:\n");
+        for
+        (
+            container::const_iterator ci = m_bytes.begin();
+            ci != m_bytes.end(); ++ci
+        )
+        {
+            fprintf(stderr, " 0x%2x", int(*ci));
+        }
+        fprintf(stderr, "\n");
+        fflush(stderr);
+    }
 }
 
 /*
@@ -75,9 +104,10 @@ midi_queue::~midi_queue ()
 void
 midi_queue::allocate (unsigned queuesize)
 {
+    deallocate();
     if (queuesize > 0 && is_nullptr(m_ring))
     {
-        m_ring = new (std::nothrow) midi_message[queuesize];
+        m_ring = new(std::nothrow) midi_message[queuesize];
         if (not_nullptr(m_ring))
             m_ring_size = queuesize;
     }

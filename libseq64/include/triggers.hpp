@@ -28,7 +28,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-10-30
- * \updates       2017-08-03
+ * \updates       2017-11-24
  * \license       GNU GPLv2 or above
  *
  *  By segregating trigger support into its own module, the sequence class is
@@ -167,6 +167,26 @@ public:
     }
 
     /**
+     *  Test if the input parameters indicate we are touching a trigger
+     *  transtion.
+     *
+     * \param s
+     *      The starting tick.
+     *
+     * \param e
+     *      The ending tick.
+     */
+
+    bool at_trigger_transition (midipulse s, midipulse e)
+    {
+        return
+        (
+            s == m_tick_start || e == m_tick_start ||
+            s == m_tick_end   || e == m_tick_end
+        );
+    }
+
+    /**
      * \getter m_tick_end
      */
 
@@ -271,7 +291,7 @@ class triggers
     friend class Seq24PerfInput;        /* we need better encapsulation */
     friend class FruityPerfInput;       /* we need better encapsulation */
 
-private:
+public:
 
     /**
      *  Provides a typedef introduced by Stazed to make the trigger grow/move
@@ -284,6 +304,8 @@ private:
         GROW_END    = 1,    /**< Grow the end of the trigger.           */
         GROW_MOVE   = 2     /**< Move the entire trigger block.         */
     };
+
+private:
 
     /**
      *  Exposes the triggers type, currently needed for midi_container only.
@@ -312,6 +334,13 @@ private:
      */
 
     List m_triggers;
+
+    /**
+     *  Holds a count of the selected triggers, for better control over
+     *  selections.
+     */
+
+    int m_number_selected;
 
     /**
      *  This item holds a single copied trigger, to be pasted later.
@@ -423,11 +452,33 @@ public:
         return m_triggers;
     }
 
+    /**
+     * \getter m_triggers.size()
+     */
+
+    int count () const
+    {
+        return int(m_triggers.size());
+    }
+
+    /**
+     * \getter m_number_selected
+     */
+
+    int number_selected () const
+    {
+        return m_number_selected;
+    }
+
     void push_undo ();
     void pop_undo ();
     void pop_redo ();
     void print (const std::string & seqname) const;
+#ifdef SEQ64_SONG_RECORDING
+    bool play (midipulse & starttick, midipulse & endtick, bool resume = false);
+#else
     bool play (midipulse & starttick, midipulse & endtick);
+#endif
     void add
     (
         midipulse tick, midipulse len,
@@ -435,12 +486,18 @@ public:
     );
     void adjust_offsets_to_length (midipulse newlen);
     void split (midipulse tick);
+    void half_split (midipulse tick);
+    void exact_split (midipulse tick);
+
     void grow (midipulse tickfrom, midipulse tickto, midipulse length);
     void remove (midipulse tick);
-    bool get_state (midipulse tick);
+    bool get_state (midipulse tick) const;
     bool select (midipulse tick);
+    bool unselect (midipulse tick);
     bool unselect ();
     bool intersect (midipulse position, midipulse & start, midipulse & end);
+    bool intersect (midipulse position);
+
     void remove_selected ();
     void copy_selected ();
     void paste (midipulse paste_tick = SEQ64_NO_PASTE_TRIGGER);
@@ -448,6 +505,7 @@ public:
     (
         midipulse tick, bool adjustoffset, grow_edit_t which = GROW_MOVE
     );
+
     midipulse get_selected_start ();
     midipulse get_selected_end ();
     midipulse get_maximum ();
@@ -455,12 +513,13 @@ public:
     void copy (midipulse starttick, midipulse distance);
 
     /**
-     *  Clears the whole list of triggers.
+     *  Clears the whole list of triggers, and zeroes the number selected.
      */
 
     void clear ()
     {
         m_triggers.clear();
+        m_number_selected = 0;
     }
 
     bool next
@@ -491,8 +550,14 @@ public:
 
 private:
 
+#ifdef SEQ64_SONG_BOX_SELECT
+    void offset_selected (midipulse tick, grow_edit_t editmode);
+#endif
+
     midipulse adjust_offset (midipulse offset);
-    void split (trigger & trig, midipulse splittick);
+    void split (trigger & t, midipulse splittick);
+    void select (trigger & t, bool count = true);
+    void unselect (trigger & t, bool count = true);
 
 };          // class triggers
 

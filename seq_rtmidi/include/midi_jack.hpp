@@ -6,9 +6,10 @@
  *
  *    A class for realtime MIDI input/output via JACK.
  *
+ * \library       sequencer64 application
  * \author        Gary P. Scavone; severe refactoring by Chris Ahlstrom
  * \date          2016-11-14
- * \updates       2017-08-22
+ * \updates       2018-01-26
  * \license       See the rtexmidi.lic file.  Too big for a header file.
  *
  *    In this refactoring, we've stripped out most of the original RtMidi
@@ -43,19 +44,6 @@ class midi_jack : public midi_api
 private:
 
     /**
-     *  Set to true if each JACK port should be its own client.  In this case,
-     *  the functions api_init_in(), api_init_out(), api_init_in_sub(), and
-     *  api_init_out_sub() need to open their own JACK client.  Otherwise,
-     *  they will use the JACK client created in the midi_jack_info class.
-     *
-     *  We may be changing this meaning.  We want to try support separate JACK
-     *  clients, one for all input ports, and one for all output ports.  So
-     *  the above comments might not apply.  Still thinking.
-     */
-
-    bool m_multi_client;
-
-    /**
      *  Preserves the original name of the remote port, so it can be used
      *  later for connection.
      */
@@ -80,24 +68,14 @@ protected:
 
     midi_jack_data m_jack_data;
 
+private:
+
+    midi_jack ();       // EXPERIMENTAL
+
 public:
 
-    midi_jack
-    (
-        midibus & parentbus,
-        midi_info & masterinfo,
-        bool multiclient = false
-    );
+    midi_jack (midibus & parentbus, midi_info & masterinfo);
     virtual ~midi_jack ();
-
-    /**
-     * \getter m_multi_client
-     */
-
-    bool multi_client () const
-    {
-        return m_multi_client;
-    }
 
     /**
      * \getter m_jack_client
@@ -223,7 +201,8 @@ protected:
 
 private:
 
-    void send_byte (midibyte evbyte, midipulse tick = SEQ64_NULL_MIDIPULSE);
+    void send_byte (midibyte evbyte);
+    bool send_message (const midi_message & message);
     bool set_virtual_name (int portid, const std::string & portname);
 
 };          // class midi_jack
@@ -273,7 +252,7 @@ public:
 
     midi_out_jack (midibus & parentbus, midi_info & masterinfo);
     virtual ~midi_out_jack ();
-    virtual bool send_message (const midi_message & message);
+    /// virtual bool send_message (const midi_message & message);
 
 private:
 

@@ -28,7 +28,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-09-22
- * \updates       2017-08-13
+ * \updates       2018-01-27
  * \license       GNU GPLv2 or above
  *
  *  This module defines the following categories of "global" variables that
@@ -133,7 +133,7 @@ class user_settings
     /**
      *  [user-midi-bus-definitions]
      *
-     *  Internal type for the container of user_midi_bus objects.
+     *  Internal types for the container of user_midi_bus objects.
      *  Sorry about the "confusion" about "bus" versus "buss".
      *  See Google for arguments about it.
      */
@@ -167,6 +167,15 @@ class user_settings
      */
 
     Instruments m_instruments;
+
+    /**
+     *  [comments]
+     *
+     *  Provides a way to embed comments in the "usr" file and not lose
+     *  them when the "usr" file is auto-saved.
+     */
+
+    std::string m_comments_block;
 
     /**
      *  [user-interface-settings]
@@ -629,7 +638,7 @@ class user_settings
      *  patterns supported in the panel (32) times the maximum number of
      *  sets (32), or 1024 patterns.  It is basically the same value as
      *  m_max_sequence by default.  It is a derived value, and not stored in
-     *  the "user" file.  We might make it equal to the maximum number of
+     *  the "usr" file.  We might make it equal to the maximum number of
      *  sequences the currently-loaded MIDI file.
      *
      *      m_total_seqs = m_seqs_in_set * m_max_sets;
@@ -756,6 +765,10 @@ class user_settings
 
     const int mc_baseline_ppqn;
 
+    /*
+     *                  [user-options]
+     */
+
     /**
      *  Indicates if the application should be daemonized.  All options that
      *  begin with "option_" are options specific to a particular version of
@@ -779,6 +792,27 @@ class user_settings
      */
 
     std::string m_user_option_logfile;
+
+    /*
+     *                  [user-work-arounds]
+     */
+
+    /**
+     *  We have an issue on some user's machines where toggling the image on
+     *  the play button from the "play" image to the "pause" images causes
+     *  segfaults.  We can't duplicate on the developer's machines, so while
+     *  we try to figure how to avoid the issue, this flag is provided
+     *  to simply leave the play-button image alone.
+     */
+
+    bool m_work_around_play_image;
+
+    /**
+     *  Another similar issue occurs in setting the tranposable image in
+     *  seqedit, even though there should be no thread conflicts!  Weird.
+     */
+
+    bool m_work_around_transpose_image;
 
 public:
 
@@ -921,6 +955,15 @@ public:
     }
 
 public:
+
+    /**
+     * \getter m_comments_block
+     */
+
+    const std::string & comments_block () const
+    {
+        return m_comments_block;
+    }
 
     /**
      * \getter m_grid_style
@@ -1187,6 +1230,24 @@ public:
     bool global_seq_feature () const
     {
         return m_global_seq_feature_save;
+    }
+
+    /**
+     * \setter m_comments_block
+     */
+
+    void clear_comments ()
+    {
+        m_comments_block.clear();
+    }
+
+    /**
+     * \setter m_comments_block
+     */
+
+    void append_comment_line (const std::string & line)
+    {
+        m_comments_block += line;
     }
 
     /**
@@ -1575,7 +1636,26 @@ public:
 
     std::string option_logfile () const;
 
+    /**
+     * \getter m_work_around_play_image
+     */
+
+    bool work_around_play_image () const
+    {
+        return m_work_around_play_image;
+    }
+
+    /**
+     * \getter m_work_around_transpose_image
+     */
+
+    bool work_around_transpose_image () const
+    {
+        return m_work_around_transpose_image;
+    }
+
 public:         // used in main application module and the userfile class
+
 
     /**
      * \setter m_use_new_font
@@ -1676,6 +1756,24 @@ public:         // used in main application module and the userfile class
     void option_logfile (const std::string & logfile)
     {
         m_user_option_logfile = logfile;
+    }
+
+    /**
+     * \setter m_work_around_play_image
+     */
+
+    void work_around_play_image (bool flag)
+    {
+        m_work_around_play_image = flag;
+    }
+
+    /**
+     * \setter m_work_around_transpose_image
+     */
+
+    void work_around_transpose_image (bool flag)
+    {
+        m_work_around_transpose_image = flag;
     }
 
     void midi_ppqn (int ppqn);

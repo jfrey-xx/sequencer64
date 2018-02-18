@@ -6,7 +6,7 @@ dnl \file          configure.ac
 dnl \library       Sequencer64
 dnl \author        Chris Ahlstrom
 dnl \date          2015-09-11
-dnl \update        2017-09-08
+dnl \update        2018-02-18
 dnl \version       $Revision$
 dnl \license       $XPC_SUITE_GPL_LICENSE$
 dnl
@@ -25,9 +25,8 @@ dnl
 dnl ---------------------------------------------------------------------------
 
 AC_PREREQ(2.60)
-AC_REVISION($Revision: 0.93$)
-AC_CONFIG_MACRO_DIRS([m4])
-AC_INIT(Sequencer64, [0.94.0], [ahlstromcj@gmail.com])
+AC_REVISION($Revision: 0.94$)dnl
+AC_INIT(Sequencer64, [0.94.6], [ahlstromcj@gmail.com])
 AC_CONFIG_AUX_DIR([aux-files])
 
 dnl See AC_CONFIG_SRCDIR
@@ -92,18 +91,18 @@ dnl against ws2_32.
 dnl
 dnl case $host_os in
 dnl 
-dnl 	mingw*)
-dnl 		LDFLAGS="-lws2_32"
-dnl 		;;
+dnl     mingw*)
+dnl         LDFLAGS="-lws2_32"
+dnl         ;;
 dnl 
-dnl 	*)
-dnl 		AC_TYPE_OFF_T
-dnl 		AC_TYPE_SIZE_T
-dnl 		AC_TYPE_SSIZE_T
-dnl 		AC_TYPE_UINT8_T
-dnl 		AC_TYPE_UINT32_T
-dnl 		AC_TYPE_UINT64_T
-dnl 		;;
+dnl     *)
+dnl         AC_TYPE_OFF_T
+dnl         AC_TYPE_SIZE_T
+dnl         AC_TYPE_SSIZE_T
+dnl         AC_TYPE_UINT8_T
+dnl         AC_TYPE_UINT32_T
+dnl         AC_TYPE_UINT64_T
+dnl         ;;
 dnl esac
 
 dnl Handle cross-compiling with mingw32.
@@ -123,6 +122,8 @@ build_windows="no"
 
 dnl Flaky, the AR macro is set well after this test, but the GCC macro
 dnl is set before it, so that is what we use.  Odd.
+dnl
+dnl AC_MSG_RESULT([TESTING HOST OS])
 
 if test x"$windows_host" = x"yes" ; then
     if test x"$CC" = x"gcc" ; then
@@ -148,7 +149,7 @@ AC_SUBST(PACKAGE)
 AC_DEFINE(CLIENT_NAME, ["seq64"], "The name to display as client/port")
 AC_SUBST(CLIENT_NAME)
 
-VERSION="0.94.0"
+VERSION="0.94.6"
 AC_DEFINE_UNQUOTED(VERSION, "$VERSION")
 AC_SUBST(VERSION)
 
@@ -190,7 +191,7 @@ dnl      incremented.
 SEQ64_API_MAJOR="0"
 AC_SUBST([SEQ64_API_MAJOR])
 
-SEQ64_API_MINOR="93"
+SEQ64_API_MINOR="94"
 AC_SUBST([SEQ64_API_MINOR])
 
 SEQ64_API_PATCH="0"
@@ -249,7 +250,7 @@ dnl testing provides only 1.5 (Debian unstable now provides 2.4).  So we don't
 dnl use these new macros, just the older, deprecated macros.
 dnl
 
-LT_PREREQ([2.4.6])
+LT_PREREQ([2.4.2])
 LT_INIT([win32-dll])
 
 dnl AC_SUBST([LIBTOOL_DEPS])
@@ -298,7 +299,7 @@ AC_SUBST(sequencer64libdir)
 sequencer64docdir="${datadir}/doc/sequencer64-${SEQ64_API_VERSION}"
 AC_SUBST(sequencer64docdir)
 
-sequencer64datadir="${datadir}/sequencer64-${MIDICVT_API_VERSION}"
+sequencer64datadir="${datadir}/sequencer64-${SEQ64_API_VERSION}"
 AC_SUBST(sequencer64datadir)
 
 sequencer64doxygendir="${datadir}/doc/sequencer64-${SEQ64_API_VERSION}"
@@ -337,7 +338,7 @@ if test x"${as_needed}" = x"unknown" ; then
         [],
         [as_needed="1"],
         [as_needed=""])
-    LDFLAGS="${ac_old_ldflags}" 
+    LDFLAGS="${ac_old_ldflags}"
 fi
 if test -n "$as_needed"; then
     AC_MSG_RESULT(yes)
@@ -348,11 +349,30 @@ fi
 
 fi
 
+dnl Check for deprecated GTK constructs as per
+dnl http://www.murrayc.com/permalink/2011/01/18/avoiding-use-of-deprecated-api/
+dnl
+dnl Looks too difficult, errors in gtk headers. Try gtkmm-3 directly instead.
+dnl That is unworkable at this time, though.
+dnl
+dnl MM_ARG_ENABLE_WARNINGS([MM_WFLAGS],
+dnl  [-Wall],
+dnl  [-Wall -Wextra -Wno-missing-field-initializers -DGSEAL_ENABLE],
+dnl  [G GDK GDK_PIXBUF PANGO GTK])
+
 dnl 4. Get external flags, if any.
 
 CFLAGS="${CFLAGS}"
 
 dnl Checks for libraries.
+
+dnl DO WE NEED THIS REALLY?  Comment it out for now.
+dnl
+dnl AC_CHECK_LIB(rt, main,, AC_MSG_ERROR([POSIX.1b Realtime library missing librt]))
+
+dnl Convert from gtkmm-2.4 to gtkmm-3.0.  It currently builds either way.
+dnl No! I was mistaken, because I had left some 2.4 paths in place below.
+dnl Not supported in a Windows build at this time.
 
 if test x"$windows_host" = x"no" ; then
     AC_CHECK_LIB(gtkmm-2.4, _init,,
@@ -392,12 +412,13 @@ dnl AM_PATH_ALSA(0.9.0)
 dnl Check for the presence of Doxygen.  Not an error to be missing, but
 dnl we don't want to try to build documentation if it is not present.
 dnl See http://www.gnu.org/software/autoconf-archive/ax_prog_doxygen.html
+dnl Note the building the documentation also requires graphviz to be installed.
 dnl
 dnl AC_PROG_DOXYGEN
 
 AC_CHECK_PROGS([DOXYGEN], [doxygen])
 if test -z "$DOXYGEN";
-   then AC_MSG_WARN([Doxygen not found, continuing without Doxygen])
+   then AC_MSG_WARN([Doxygen not found, FYI only])
 fi
 
 dnl gtkmm
@@ -496,13 +517,13 @@ dnl top-level Makefile to determine what directories are included in the
 dnl SUBDIRS variable.  Also see the latest versions of the midibus.hpp and
 dnl mastermidibus.hpp files in libseq64/include.
 dnl
-dnl Note that no MIDI framework, not even rtmidi, is enabled by default now.
+dnl Note that rtmidi is enabled by default now.
 dnl Eventually we want to make ALSA optional for the user/developer.
 
 AC_ARG_ENABLE(rtmidi,
-    [AS_HELP_STRING(--enable-rtmidi, [Enable rtmidi build])],
+    [AS_HELP_STRING(--enable-rtmidi, [Enable rtmidi build, which is the default])],
     [rtmidi=$enableval],
-    [rtmidi=no])
+    [rtmidi=yes])
 
 if test "$rtmidi" != "no"; then
     build_rtmidi="yes"
@@ -764,8 +785,8 @@ dnl       "SEQ64_" to these values when it generated seq64-config.h.
 
 AH_TOP(
 
-#define VERSION_DATE_SHORT "2017-09-08"
-#define VERSION "0.94.0"
+#define VERSION_DATE_SHORT "2018-02-18"
+#define VERSION "0.94.6"
 
 )
 
@@ -800,7 +821,7 @@ dnl
 dnl AX_PTHREAD leaves PTHREADS_LIBS empty for gcc, and sets PTHREADS_CFLAGS
 dnl to -pthread, which causes problems if we need -lpthread to appear in
 dnl pkgconfig files.
-
+dnl
 dnl AX_PTHREAD
 
 dnl VERBCFLAGS="-v"
@@ -810,13 +831,13 @@ dnl code.
 VERBCFLAGS=""
 
 case "$host_os" in
-	*cygwin*)
-		gnuwin=yes
+    *cygwin*)
+        gnuwin=yes
         AX_PTHREAD
         ;;
 
-	*mingw*)
-		gnuwin=yes
+    *mingw*)
+        gnuwin=yes
         AC_MSG_NOTICE([Setting up MingW pthreads support])
         CFLAGS="$CFLAGS -mthreads -pthread "
         CPPFLAGS="-DPTW32_STATIC_LIB $CPPFLAGS "
@@ -826,15 +847,9 @@ case "$host_os" in
         ;;
 
     *)
-        AC_MSG_NOTICE([normal pthreads support])
-        AC_MSG_CHECKING([Running normal PTHREAD test.])
-        AX_PTHREAD([
-            echo Using settings from AX_PTHREAD
-            LIBS="$PTHREAD_LIBS $LIBS"
-            CFLAGS="  $PTHREAD_CFLAGS $CFLAGS"
-            CXXFLAGS="$PTHREAD_CFLAGS $CXXFLAGS "
-            CC="$PTHREAD_CC"],
-            [AC_MSG_ERROR(Sequencer64 requires pthreads)])
+        AC_MSG_NOTICE([Normal pthreads support])
+        AC_MSG_CHECKING([Running normal PTHREAD test])
+        AX_PTHREAD
         ;;
 esac
 
@@ -847,9 +862,10 @@ dnl So we put that requirement back, and had to fix some issues with
 dnl conditional compilation.
 dnl
 dnl 2017-08-25:  Removed the already-configured (above) -Wl,--as-needed option.
+dnl 2017-09-14:  Replaced c++11 with c++14 to support glibmm-2.24 update.
 
-CFLAGS="$CFLAGS $COMMONFLAGS $VERBCFLAGS"
-CXXFLAGS="$CFLAGS -std=c++11 -Wno-variadic-macros -Wno-deprecated-declarations"
+CFLAGS="$CFLAGS $COMMONFLAGS"
+CXXFLAGS="$CFLAGS -std=c++14 -Wno-variadic-macros -Wno-deprecated-declarations"
 
 AM_CONDITIONAL(GNU_WIN, test x$gnuwin = xyes)
 
@@ -923,7 +939,9 @@ AC_CONFIG_FILES([
  Seq64qt5/Makefile
  Seq64rtmidi/Makefile
  Seq64cli/Makefile
+ Midiclocker64/Makefile
  man/Makefile
+ data/Makefile
 ])
 
 dnl See AC_CONFIG_COMMANDS
