@@ -160,6 +160,10 @@ font::font ()
  *  characters on a white background, one has yellow characters on a black
  *  background, and one has black characters on a yellow background.
  *
+ * \todo
+ *      Can we scale these images via
+ *      scale_simple(newwidth, newhight, Gtk::INTERP_BILINEAR)
+ *
  * \param wp
  *      Provides the windows pointer for the window that holds the color map.
  */
@@ -237,7 +241,7 @@ font::init (Glib::RefPtr<Gdk::Window> wp)
  * \param y
  *      The vertical location of the text.
  *
- * \param a_draw
+ * \param adraw
  *      The drawable object on which to draw the text.
  *
  * \param str
@@ -255,12 +259,45 @@ font::init (Glib::RefPtr<Gdk::Window> wp)
  *      If true, apply color inversion, if specified.
  */
 
+#ifdef USE_DEMONSTRATION_CODE
+
+/**
+ *  Where the size of the text to be drawn needs to be known (e.g., to clear
+ *  out the background behind it), this can be established with:
+ *
+ *          layout.get_pixel_ink_extents();
+ *
+ *  which returns a Pango::Rectangle with the usual height, width, etc,
+ *  values.
+ */
+
+void
+font::render_string_on_drawable
+(
+    Widget & drawarea,
+    Glib::RefPtr<Gdk::GC> gc,
+    int x, int y,
+    Glib::RefPtr<Gdk::Drawable> /*adraw*/,
+    const std::string & text
+    font::Color /*col*/,
+    bool /*invert*/
+)
+{
+    Pango::Layout layout = drawarea.create_pango_layout(text);
+    layout.set_font_description(Pango::FontDescription("Monospace 6"));
+    layout.set_height(0);                   /* magic "make one line" value  */
+    y += m_use_new_font ? 1 : 2 ;           /* make minor correction        */
+    drawarea.draw_layout(gc, x, y, layout);
+}
+
+#else       // USE_DEMONSTRATION_CODE
+
 void
 font::render_string_on_drawable
 (
     Glib::RefPtr<Gdk::GC> gc,
     int x, int y,
-    Glib::RefPtr<Gdk::Drawable> a_draw,
+    Glib::RefPtr<Gdk::Drawable> adraw,
     const char * str,
     font::Color col,
     bool invert
@@ -269,12 +306,10 @@ font::render_string_on_drawable
     int length = 0;
     if (not_nullptr(str))
         length = strlen(str);
-
-    if (m_use_new_font)
-        y += 1;                         /* make minor correction */
     else
-        y += 2;                         /* make minor correction */
+        return;
 
+    y += m_use_new_font ? 1 : 2 ;       /* make minor correction    */
     if (col == font::BLACK)
         m_pixmap = &m_black_pixmap;
     else if (col == font::WHITE)
@@ -302,7 +337,7 @@ font::render_string_on_drawable
         pixbuf_index_x += m_offset;     /* add around 2 for border?         */
         pixbuf_index_y *= m_cell_h;     /* height of grid (letter=10 pixel) */
         pixbuf_index_y += m_offset;     /* add around 2 for border?         */
-        a_draw->draw_drawable
+        adraw->draw_drawable
         (
             gc, *m_pixmap, pixbuf_index_x, pixbuf_index_y,
             x + (k * m_font_w), y, m_font_w, m_font_h
@@ -311,6 +346,8 @@ font::render_string_on_drawable
     if (gui_palette_gtk2::is_inverse() && invert)
         gc->set_function(Gdk::COPY);    /* not NOOP or SET                  */
 }
+
+#endif      // USE_DEMONSTRATION_CODE
 
 }           // namespace seq64
 

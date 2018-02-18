@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2018-02-03
+ * \updates       2018-02-17
  * \license       GNU GPLv2 or above
  *
  *  The main window holds the menu and the main controls of the application,
@@ -146,9 +146,7 @@
 #ifdef SEQ64_SONG_RECORDING
 
 /*
- *  No longer used.
- *
- * #include "pixmaps/song_rec_off.xpm"
+ *  No longer used: #include "pixmaps/song_rec_off.xpm"
  */
 
 #include "pixmaps/song_rec_on.xpm"
@@ -174,7 +172,7 @@
  *  Padding for the pill time-line.
  */
 
-#define TIMELINE_PILL_PADDING        8
+#define TIMELINE_PILL_PADDING        4
 
 /**
  *  Provides the value of padding, in pixels, to use for the bottom horizontal
@@ -191,7 +189,15 @@
  *  user_settings::mainwid_height() function.
  */
 
-#define VBOX_PADDING                 5  // 7  // 8
+#define VBOX_PADDING                 5
+
+/**
+ *  Provides an easy way to switch between PACK_SHRINK and PACK_EXPAND_WIDGET
+ *  for experimentation.
+ */
+
+#define VBOX_PACKING                Gtk::PACK_EXPAND_WIDGET
+#define HBOX_PACKING                Gtk::PACK_EXPAND_WIDGET
 
 /**
  *  The amount of time to wait for inaction before clearing the tap-button
@@ -301,7 +307,7 @@ mainwnd::mainwnd
     m_adjust_ss             (manage(new Gtk::Adjustment(0, 0, c_max_sets-1, 1))),
     m_spinbutton_ss         (manage(new Gtk::SpinButton(*m_adjust_ss))),
 #endif
-    m_current_screenset     (0),
+    m_current_screenset     (-1),
     m_main_time             (manage(new maintime(p, ppqn))),
     m_perf_edit             (new perfedit(p, false /*allowperf2*/, ppqn)),
     m_perf_edit_2           (allowperf2 ? new perfedit(p, true, ppqn) : nullptr),
@@ -484,7 +490,7 @@ mainwnd::mainwnd
 
     add_tooltip(m_button_mode, modetext);
     m_button_mode->set_active(perf().song_start_mode());
-    tophbox->pack_start(*m_button_mode, false, false, TOP_HBOX_PADDING/2);
+    tophbox->pack_start(*m_button_mode, HBOX_PACKING, TOP_HBOX_PADDING/2);
 
     /*
      * We bind the muting button to the mainwid's toggle_all_tracks()
@@ -498,6 +504,11 @@ mainwnd::mainwnd
     m_button_mute->set_can_focus(false);
 
 #if defined SEQ64_MULTI_MAINWID
+
+    /*
+     * Here, we can't "concatenate" the assignments to nullptr because all the
+     * pointers are of different types.
+     */
 
     for (int block = 0; block < SEQ64_MAINWIDS_MAX; ++block)
     {
@@ -519,7 +530,7 @@ mainwnd::mainwnd
     {
         std::string label = "   Set ";
         label += std::to_string(block);
-        m_mainwid_blocks[block] = manage(new mainwid(p, block, multi_wid()));
+        m_mainwid_blocks[block] = manage(new mainwid(p, block));
         if (independent() || block == 0)
         {
             m_mainwid_adjustors[block] = manage
@@ -540,24 +551,11 @@ mainwnd::mainwnd
             m_mainwid_frames[block] = manage(new Gtk::Frame(label));
             m_mainwid_frames[block]->set_border_width(4);
             m_mainwid_frames[block]->set_shadow_type(Gtk::SHADOW_NONE);
-
-            /*
-             * We get more control if we add the frame and mainwid
-             * separately to the table.  Try adding it to table instead.
-             *
-             *  m_mainwid_frames[block]->add(*m_mainwid_blocks[block]);
-             *  m_mainwid_frames[block]->add(*m_mainwid_spinners[block]);
-             */
         }
     }
     m_main_wid = m_mainwid_blocks[0];
     m_adjust_ss = m_mainwid_adjustors[0];
     m_spinbutton_ss = m_mainwid_spinners[0];
-    if (multi_wid())
-    {
-        m_mainwid_frames[0]->set_shadow_type(Gtk::SHADOW_OUT);
-        m_mainwid_frames[0]->set_label("   Set 0 [active]");
-    }
 
 #else
 
@@ -584,9 +582,7 @@ mainwnd::mainwnd
         "mode.  Affects only tracks that are currently armed. Muted tracks "
         "are remembered even if the mode is toggled to Song and back to Live. "
     );
-
-    tophbox->pack_start(*m_button_mute, false, false);  /* no extra padding */
-
+    tophbox->pack_start(*m_button_mute, HBOX_PACKING, TOP_HBOX_PADDING/2);
     if (usr().use_more_icons())
         m_button_menu->add(*manage(new PIXBUF_IMAGE(menu_xpm)));
 
@@ -603,7 +599,7 @@ mainwnd::mainwnd
     (
         sigc::mem_fun(*this, &mainwnd::set_menu_mode)
     );
-    tophbox->pack_start(*m_button_menu, false, false, TOP_HBOX_PADDING/2);
+    tophbox->pack_start(*m_button_menu, HBOX_PACKING, TOP_HBOX_PADDING/2);
 
 #ifdef SEQ64_SHOW_JACK_STATUS
     add_tooltip
@@ -618,11 +614,10 @@ mainwnd::mainwnd
     (
         sigc::mem_fun(*this, &mainwnd::jack_dialog)
     );
-    tophbox->pack_start(*m_button_jack, false, false);  /* no extra padding */
+    tophbox->pack_start(*m_button_jack, HBOX_PACKING, TOP_HBOX_PADDING/2);
 #endif
 
 #if defined SEQ64_MULTI_MAINWID
-    tophbox->pack_start(*(manage(new Gtk::HSeparator())), false, false, 4);
     tophbox->pack_start(*m_status_label, false, false);  /* new */
 #endif
 
@@ -632,7 +627,7 @@ mainwnd::mainwnd
 
     Gtk::VBox * vbox_b = manage(new Gtk::VBox(true,  0));
     Gtk::HBox * hbox3 = manage(new Gtk::HBox(false, 0));
-    hbox3->pack_start(*m_main_time, false, false, TIMELINE_PILL_PADDING);
+    hbox3->pack_start(*m_main_time, Gtk::PACK_SHRINK, TIMELINE_PILL_PADDING);
     vbox_b->pack_start(*hbox3, false, false);
 
     /* Add the time-line and the time-clock */
@@ -655,12 +650,10 @@ mainwnd::mainwnd
         m_button_time_type,
         "Toggles between B:B:T and H:M:S format, showing the selected format."
     );
-    tophbox->pack_start(*m_button_time_type, false, false);
-    tophbox->pack_start(*(manage(new Gtk::HSeparator())), false, false, 4);
+    tophbox->pack_start(*m_button_time_type, HBOX_PACKING, TOP_HBOX_PADDING/2);
 
     Gtk::Label * timedummy = manage(new Gtk::Label("   "));
     hbox4->pack_start(*timedummy, false, false, 0);
-
     hbox4->pack_start(*m_tick_time, false, false, 0);
     vbox_b->pack_start(*hbox4, false, false, 0);
     tophbox->pack_end(*vbox_b, false, false);
@@ -685,7 +678,7 @@ mainwnd::mainwnd
         "See File / Options / Keyboard for available mute-group keys "
         "and the hotkey for the 'L' button. Ctrl-L also causes this action."
     );
-    hbox3->pack_end(*m_button_learn, false, false);
+    hbox3->pack_end(*m_button_learn, HBOX_PACKING);
 
     /*
      *  This seems to be a dirty hack to clear the focus, not to trigger L
@@ -700,9 +693,10 @@ mainwnd::mainwnd
      *  the container that groups them.
      */
 
-    Gtk::HBox * bottomhbox = manage(new Gtk::HBox(false, BOTTOM_HBOX_PADDING));
+    int hboxpadding = usr().scale_size(BOTTOM_HBOX_PADDING);
+    Gtk::HBox * bottomhbox = manage(new Gtk::HBox(false, hboxpadding));
     Gtk::HBox * startstophbox = manage(new Gtk::HBox(false, 4)); /* button */
-    bottomhbox->pack_start(*startstophbox, Gtk::PACK_SHRINK);
+    bottomhbox->pack_start(*startstophbox, HBOX_PACKING);
 
     /*
      * Panic button
@@ -718,7 +712,7 @@ mainwnd::mainwnd
         "Panic button.  A guaranteed stop-all for notes on all busses, "
         "channels, and keys.  Adapted from Kepler34."
     );
-    startstophbox->pack_start(*m_button_panic, Gtk::PACK_SHRINK);
+    startstophbox->pack_start(*m_button_panic, HBOX_PACKING);
 
     /*
      * Stop button.
@@ -735,7 +729,7 @@ mainwnd::mainwnd
         mem_fun(*this, &mainwnd::stop_playing)
     );
     add_tooltip(m_button_stop, "Stop playing the MIDI sequences.");
-    startstophbox->pack_start(*m_button_stop, Gtk::PACK_SHRINK);
+    startstophbox->pack_start(*m_button_stop, HBOX_PACKING);
     m_button_stop->set_sensitive(true);
 
     /*
@@ -751,7 +745,7 @@ mainwnd::mainwnd
         mem_fun(*this, &mainwnd::start_playing)
     );
     add_tooltip(m_button_play, "Start playback from the current location.");
-    startstophbox->pack_start(*m_button_play, Gtk::PACK_SHRINK);
+    startstophbox->pack_start(*m_button_play, HBOX_PACKING);
     m_button_play->set_sensitive(true);
 
 #ifdef SEQ64_SONG_RECORDING
@@ -768,7 +762,7 @@ mainwnd::mainwnd
         "Click this button to toggle the recording of live changes to the "
         "song performance, i.e. song recording."
     );
-    startstophbox->pack_start(*m_button_song_record, false, false);
+    startstophbox->pack_start(*m_button_song_record, HBOX_PACKING);
 
     m_button_song_snap->set_focus_on_click(false);
     m_button_song_snap->signal_toggled().connect
@@ -780,7 +774,7 @@ mainwnd::mainwnd
         m_button_song_snap,
         "Click this button to toggle the snapping of live song recording."
     );
-    startstophbox->pack_start(*m_button_song_snap, false, false);
+    startstophbox->pack_start(*m_button_song_snap, HBOX_PACKING);
 
 #endif
 
@@ -792,7 +786,7 @@ mainwnd::mainwnd
      */
 
     Gtk::HBox * bpmhbox = manage(new Gtk::HBox(false, 4));
-    bottomhbox->pack_start(*bpmhbox, Gtk::PACK_SHRINK);
+    bottomhbox->pack_start(*bpmhbox, HBOX_PACKING);
     m_spinbutton_bpm->set_sensitive(true);
     m_spinbutton_bpm->set_editable(true);
     m_spinbutton_bpm->set_digits(usr().bpm_precision());
@@ -862,30 +856,19 @@ mainwnd::mainwnd
     );
     Gtk::Label * bpmlabel = manage(new Gtk::Label("_BPM", true));
     bpmlabel->set_mnemonic_widget(*m_spinbutton_bpm);
-    bpmhbox->pack_start(*bpmlabel, Gtk::PACK_SHRINK);
-    bpmhbox->pack_start(*m_spinbutton_bpm, Gtk::PACK_SHRINK);
+    bpmhbox->pack_start(*bpmlabel, HBOX_PACKING);
+    bpmhbox->pack_start(*m_spinbutton_bpm, HBOX_PACKING);
 
 #ifdef SEQ64_MAINWND_TAP_BUTTON
-    bpmhbox->pack_start(*m_button_tap, Gtk::PACK_SHRINK);
+    bpmhbox->pack_start(*m_button_tap, HBOX_PACKING);
 #endif
-
-#define TRY_TEMPO_VBOX
-#ifdef TRY_TEMPO_VBOX
 
     Gtk::VBox * tempovbox = manage(new Gtk::VBox(true,  0));
+    tempovbox->pack_start(*m_button_tempo_log, VBOX_PACKING);
+    tempovbox->pack_start(*m_button_tempo_record, VBOX_PACKING);
+    bpmhbox->pack_start(*tempovbox, HBOX_PACKING);
 
-    tempovbox->pack_start(*m_button_tempo_log, Gtk::PACK_SHRINK);
-    tempovbox->pack_start(*m_button_tempo_record, Gtk::PACK_SHRINK);
-    bpmhbox->pack_start(*tempovbox, Gtk::PACK_SHRINK);
-
-#else
-
-    bpmhbox->pack_start(*m_button_tempo_log, Gtk::PACK_SHRINK);
-    bpmhbox->pack_start(*m_button_tempo_record, Gtk::PACK_SHRINK);
-
-#endif
-
-    bpmhbox->pack_start(*m_button_queue, Gtk::PACK_SHRINK);
+    bpmhbox->pack_start(*m_button_queue, HBOX_PACKING);
 
     /*
      * Screen set name edit line.
@@ -897,7 +880,7 @@ mainwnd::mainwnd
     (
         mem_fun(*this, &mainwnd::edit_callback_notepad)
     );
-    m_entry_notes->set_text(perf().current_screen_set_notepad());
+    m_entry_notes->set_text(perf().current_screenset_notepad());
     add_tooltip
     (
         m_entry_notes,
@@ -909,25 +892,23 @@ mainwnd::mainwnd
     Gtk::Label * notelabel = manage(new Gtk::Label("_Name", true));
     notelabel->set_mnemonic_widget(*m_entry_notes);
     notebox->pack_start(*notelabel, Gtk::PACK_SHRINK);
-    notebox->pack_start(*m_entry_notes, Gtk::PACK_EXPAND_WIDGET);
+    notebox->pack_start(*m_entry_notes, HBOX_PACKING);
 
     /*
      * Sequence screen-set spin button.
      */
 
     Gtk::HBox * sethbox = manage(new Gtk::HBox(false, 4));
-    bottomhbox->pack_start(*sethbox, Gtk::PACK_SHRINK);
+    bottomhbox->pack_start(*sethbox, HBOX_PACKING);
     if (! multi_wid())
     {
         m_spinbutton_ss->set_sensitive(true);
         m_spinbutton_ss->set_editable(true);
         m_spinbutton_ss->set_width_chars(3);
-        m_spinbutton_ss->set_wrap(true);    // m_spinbutton_ss->set_wrap(false);
-
-#if ! defined SEQ64_MULTI_MAINWID
+        m_spinbutton_ss->set_wrap(true);
 
         /*
-         * If built for multi-wid, this control is connected to
+         * If running in multi-wid mode, this control is connected to
          * adj_callback_wid() instead.
          */
 
@@ -935,9 +916,11 @@ mainwnd::mainwnd
         (
             mem_fun(*this, &mainwnd::adj_callback_ss)
         );
-#endif
 
-        add_tooltip(m_spinbutton_ss, "Select screen-set from one of (up to) 32 sets.");
+        add_tooltip
+        (
+            m_spinbutton_ss, "Select screen-set from one of up to 32 sets."
+        );
         Gtk::Label * setlabel = manage(new Gtk::Label("_Set", true));
         setlabel->set_mnemonic_widget(*m_spinbutton_ss);
         sethbox->pack_start(*setlabel, Gtk::PACK_SHRINK);
@@ -974,7 +957,7 @@ mainwnd::mainwnd
                             mem_fun(*this, &mainwnd::adj_callback_wid), block
                         )
                     );
-                    sethbox->pack_start(*sbp, Gtk::PACK_SHRINK);
+                    sethbox->pack_start(*sbp, HBOX_PACKING);
                 }
             }
         }
@@ -1000,7 +983,7 @@ mainwnd::mainwnd
         "Show or hide the main song editor window. Ctrl-E also brings up "
         "the editor."
     );
-    bottomhbox->pack_end(*m_button_perfedit, Gtk::PACK_SHRINK);
+    bottomhbox->pack_start(*m_button_perfedit, Gtk::PACK_SHRINK);
 
 #if ! defined SEQ64_MULTI_MAINWID
 #if defined SEQ64_JE_PATTERN_PANEL_SCROLLBARS
@@ -1020,14 +1003,16 @@ mainwnd::mainwnd
     {
         Gtk::Layout * mainwid_wrapper = new Gtk::Layout(*m_hadjust, *m_vadjust);
         mainwid_wrapper->add(*m_main_wid);
-        mainwid_wrapper->set_size(m_main_wid->m_mainwid_x, m_main_wid->m_mainwid_y);
+        mainwid_wrapper->set_size
+        (
+            m_main_wid->m_mainwid_x, m_main_wid->m_mainwid_y
+        );
 
         Gtk::HBox * mainwid_vscroll_wrapper = new Gtk::HBox();
         mainwid_vscroll_wrapper->set_spacing(5);
         mainwid_vscroll_wrapper->pack_start
         (
-            *mainwid_wrapper,
-            Gtk::PACK_EXPAND_WIDGET
+            *mainwid_wrapper, Gtk::PACK_EXPAND_WIDGET
         );
         mainwid_vscroll_wrapper->pack_start(*m_vscroll, false, false);
 
@@ -1064,7 +1049,7 @@ mainwnd::mainwnd
     Gtk::VBox * contentvbox = manage(new Gtk::VBox());
     contentvbox->set_spacing(VBOX_PADDING);
     contentvbox->set_border_width(10);
-    contentvbox->pack_start(*tophbox, Gtk::PACK_SHRINK);
+    contentvbox->pack_start(*tophbox, VBOX_PACKING);
 
 #if ! defined SEQ64_MULTI_MAINWID
 #if defined SEQ64_JE_PATTERN_PANEL_SCROLLBARS
@@ -1122,7 +1107,7 @@ mainwnd::mainwnd
                 );
             }
         }
-        contentvbox->pack_start(*m_mainwid_grid, Gtk::PACK_SHRINK);
+        contentvbox->pack_start(*m_mainwid_grid, VBOX_PACKING);
     }
 
     m_main_wid->set_can_focus(true);            /* from stazed */
@@ -1193,16 +1178,11 @@ mainwnd::mainwnd
     int width = m_main_wid->nominal_width();
     int height = m_main_wid->nominal_height();
     int menuheight = 22;
-    int bottomheight = 52;  // 48;
-    int topheight = 64;     // 52;
+    int bottomheight = 52;
+    int topheight = 64;
     if (multi_wid())
-    {
         topheight = 100;
-    }
-    else
-    {
-        width += 24;
-    }
+
     height += menuheight + topheight + bottomheight;
 
 #endif  // SEQ64_JE_PATTERN_PANEL_SCROLLBARS
@@ -1214,6 +1194,7 @@ mainwnd::mainwnd
 
     set_size_request(width, height);
     install_signal_handlers();
+    reset_window();
 }
 
 /**
@@ -1241,6 +1222,10 @@ mainwnd::~mainwnd ()
 /**
  *  Check if one of the edit fields (BPM spinbutton, screenset spinbutton, or
  *  the Name field) has focus.
+ *
+ * \todo
+ *      We may have to revisit this one to add the Adjustment objects and the
+ *      extra objects created in multi-wid mode.
  *
  * \return
  *      Returns true if one of the three editable/modifiable fields has the
@@ -1391,19 +1376,7 @@ mainwnd::timer_callback ()
     if (m_adjust_bpm->get_value() != bpm)
         m_adjust_bpm->set_value(bpm);
 
-    int perfset = perf().screenset();
-    int currset = m_adjust_ss->get_value();
-    if (currset != m_current_screenset || perfset != m_current_screenset)
-    {
-        /*
-         * \change ca 2018-02-03 Fixed issue #135, was using newset!
-         */
-
-        if (currset != m_current_screenset)
-            set_screenset(currset);                 /* handles wrap-around  */
-        else if (perfset != m_current_screenset)
-            set_screenset(perfset);                 /* handles wrap-around  */
-    }
+    update_screenset();
 
 #ifdef SEQ64_STAZED_MENU_BUTTONS
 
@@ -1518,15 +1491,108 @@ mainwnd::timer_callback ()
  * \param screenset
  *      The new prospective screen-set value.  This will become the active
  *      screen-set.
+ *
+ * \param set_adjust_ss
+ *      If true (the default), this parameter causes the m_adjust_ss control
+ *      to be updated.  If false, it is not update.  A value of false is
+ *      necessary if the spinbutton was clicked by the user.
+ */
+
+int
+mainwnd::set_screenset (int screenset)
+{
+    int result = m_current_screenset;
+    if (screenset != m_current_screenset)
+        result = perf().set_screenset(screenset);
+
+    return result;
+}
+
+/**
+ *  New function to consolidate screen-set handling and avoid contention
+ *  between various sources of screen-set changing by letting the timer
+ *  callback detect screen-set changes that would affect the user-interface.
+ *  Updates the screen-set by comparing the current screen-set to that active
+ *  in the perform object.
+ *
+ * \change ca 2018-02-03 Fixed issue #135, was using newset!
  */
 
 void
-mainwnd::set_screenset (int screenset)
+mainwnd::update_screenset ()
 {
-    m_current_screenset = screenset;
-    m_adjust_ss->set_value(screenset);
-    (void) m_main_wid->set_screenset(screenset, true);
-    m_entry_notes->set_text(perf().current_screen_set_notepad());
+    int ss = perf().screenset();
+    if (ss != m_current_screenset)
+    {
+        m_current_screenset = ss;
+        m_adjust_ss->set_value(ss);
+        m_entry_notes->set_text(perf().current_screenset_notepad());
+#if defined SEQ64_MULTI_MAINWID
+        if (multi_wid())
+        {
+            if (independent())
+            {
+                /*
+                 * Changes to existing mainwids already made.
+                 */
+            }
+            else
+            {
+                for (int block = 0; block < m_mainwid_count; ++block)
+                {
+                    int sset = ss + block;
+                    if (sset >= perf().max_sets())
+                        sset = ss - perf().max_sets() + block;
+
+                    m_mainwid_blocks[block]->log_screenset(sset);
+                    set_wid_label(sset, block);
+                }
+            }
+        }
+        else
+            (void) m_main_wid->set_screenset(ss);
+#else
+            (void) m_main_wid->set_screenset(ss);
+#endif
+    }
+}
+
+/**
+ *  Sets the frame label for the given mainwid, based on the set number.
+ *
+ * \param ss
+ *      Provides the number of the screen-set to use to retrieve and show the
+ *      screen-set label.  This value is not sanity-checked.
+ *
+ * \param block
+ *      Provides the number of the mainwid block for which the screen-set value
+ *      applies.  Defaults to 0.  This value is not checked, but the function
+ *      is private, so we guarantee its safety.
+ */
+
+void
+mainwnd::set_wid_label (int ss, int block)
+{
+    Gtk::Frame * fslot = m_mainwid_frames[block];
+    if (not_nullptr(fslot))
+    {
+        std::string label = "   Set ";
+        label += std::to_string(ss);
+        if (ss == perf().screenset())
+        {
+            fslot->set_shadow_type(Gtk::SHADOW_OUT);
+            label += " [active]";
+        }
+
+        std::string setname = perf().get_screenset_notepad(ss);
+        if (! setname.empty())
+        {
+            label += " \"";
+            label += setname;
+            label += "\"";
+        }
+        fslot->set_label(label);
+    }
 }
 
 /**
@@ -1788,7 +1854,6 @@ mainwnd::on_realize ()
      *  (
      *      mem_fun(*this, &mainwnd::timer_callback), redraw_period_ms()
      *  );
-     *
      * set_screenset(0);           // causes a segfault
      */
 }
@@ -1828,7 +1893,7 @@ mainwnd::new_file ()
          * reset();                                // m_main_wid->reset();
          */
 
-        m_entry_notes->set_text(perf().current_screen_set_notepad());
+        m_entry_notes->set_text(perf().current_screenset_notepad());
         rc().filename("");
         update_window_title();
     }
@@ -2094,8 +2159,41 @@ mainwnd::open_file (const std::string & fn)
     rc().add_recent_file(fn);           /* from Oli Kester's Kepler34       */
     update_recent_files_menu();
     update_window_title();
-    m_entry_notes->set_text(perf().current_screen_set_notepad());
+    reset_window();
+}
+
+/**
+ *  Resets the following items:
+ *
+ *      -   Active screenset
+ *      -   Screenset numbers for all of the mainwids
+ *      -   Screenset labels for all of the mainwids
+ *      -   The values in all of the spinbuttons/screenset fields TODO TODO
+ */
+
+void
+mainwnd::reset_window ()
+{
+    set_screenset(0);
+    m_entry_notes->set_text(perf().current_screenset_notepad());
     m_adjust_bpm->set_value(perf().get_beats_per_minute());
+    if (multi_wid())
+    {
+        int block = 0;
+        for (int col = 0; col < m_mainwid_columns; ++col)
+        {
+            for (int row = 0; row < m_mainwid_rows; ++row, ++block)
+            {
+                m_mainwid_blocks[block]->log_screenset(block);
+                if (independent())
+                    m_mainwid_adjustors[block]->set_value(block);
+
+                set_wid_label(block, block);
+            }
+        }
+    }
+    else
+        m_adjust_ss->set_value(0);
 }
 
 /**
@@ -2151,8 +2249,7 @@ mainwnd::save_file ()
 
     midifile f
     (
-        rc().filename(), ppqn(),
-        rc().legacy_format(), usr().global_seq_feature()
+        rc().filename(), ppqn(), rc().legacy_format(), usr().global_seq_feature()
     );
     result = f.write(perf());
     if (result)
@@ -2305,7 +2402,7 @@ mainwnd::file_import_dialog ()
         try
         {
             midifile f(fn);
-            f.parse(perf(), int(m_adjust_load_offset->get_value()));
+            f.parse(perf(), int(m_adjust_load_offset->get_value()), true);
         }
         catch (...)
         {
@@ -2325,7 +2422,7 @@ mainwnd::file_import_dialog ()
          * reset();                                // m_main_wid->reset();
          */
 
-        m_entry_notes->set_text(perf().current_screen_set_notepad());
+        m_entry_notes->set_text(perf().current_screenset_notepad());
         m_adjust_bpm->set_value(perf().get_beats_per_minute());
         break;
     }
@@ -2377,7 +2474,7 @@ mainwnd::about_dialog ()
     apptag += " ";
     apptag += seq_version();
 #else
-    std::string apptag = SEQ64_APP_NAME " " SEQ64_VERSION; // "\n";
+    std::string apptag = SEQ64_APP_NAME " " SEQ64_VERSION;
 #endif
 
     dialog.set_name(apptag);
@@ -2395,7 +2492,7 @@ mainwnd::about_dialog ()
     (
         "(C) 2002-2006 Rob C. Buse (seq24)\n"
         "(C) 2008-2016 Seq24team (seq24)\n"
-        "(C) 2015-2017 Chris Ahlstrom (sequencer64/seq64)"
+        "(C) 2015-2018 Chris Ahlstrom (sequencer64/seq64)"
     );
     dialog.set_website
     (
@@ -2517,23 +2614,32 @@ mainwnd::build_info_dialog ()
 void
 mainwnd::adj_callback_ss ()
 {
-    if (multi_wid())
+    int ssmax = spinner_max();
+    int ss = int(m_adjust_ss->get_value());
+    if (ss <= ssmax)
     {
-        int currset = int(m_adjust_ss->get_value());
-        if (currset <= spinner_max())
+        set_screenset(ss);
+        if (multi_wid())
         {
-            set_screenset(currset);             /* set active screen-set    */
-
-#if defined SEQ64_MULTI_MAINWID
             for (int block = 0; block < m_mainwid_count; ++block)
-                m_mainwid_blocks[block]->set_screenset(currset + block);
-#endif
+            {
+                int sset = ss + block;
+                if (sset >= perf().max_sets())
+                    sset = ss - perf().max_sets() + block;
+
+                set_wid_label(sset, block);
+            }
         }
     }
-    else
-        set_screenset(int(m_adjust_ss->get_value()));
 
-    m_main_wid->grab_focus();               /* allows hot-keys to work  */
+    /*
+     * Not advisable to change the control's value in its callback!
+     *
+     *  else
+     *      m_adjust_ss->set_value(ssmax);
+     */
+
+    m_main_wid->grab_focus();               /* allows the hot-keys to work  */
 }
 
 /**
@@ -2572,20 +2678,12 @@ mainwnd::adj_callback_wid (int widblock)
     {
         if (independent())
         {
-            Gtk::Frame * fslot = m_mainwid_frames[widblock];
             int newset = m_mainwid_adjustors[widblock]->get_value();
-            std::string label = "   Set ";
-            label += std::to_string(newset);
             if (widblock == 0)
-                perf().set_screenset(newset);
+                newset = set_screenset(newset);
 
-            m_mainwid_blocks[widblock]->log_screenset(newset);  /* second   */
-            if (newset == perf().screenset())
-            {
-                fslot->set_shadow_type(Gtk::SHADOW_OUT);
-                label += " [active]";
-            }
-            fslot->set_label(label);
+            m_mainwid_blocks[widblock]->log_screenset(newset);
+            set_wid_label(newset, widblock);
             m_main_wid->grab_focus();           /* allows hot-keys to work  */
         }
         else
@@ -2604,7 +2702,7 @@ void
 mainwnd::edit_callback_notepad ()
 {
     const std::string & text = m_entry_notes->get_text();
-    perf().set_screen_set_notepad(text);
+    perf().set_screenset_notepad(text);
 }
 
 #ifdef SEQ64_PAUSE_SUPPORT
@@ -2888,8 +2986,6 @@ void
 mainwnd::tempo_log ()
 {
     (void) perf().log_current_tempo();  // TODO:  check the return value
-
-printf("tempo logged\n");
 }
 
 /**
@@ -2989,12 +3085,12 @@ mainwnd::on_key_press_event (GdkEventKey * ev)
 
         if (! perf().mainwnd_key_event(k))
         {
-            if (k.key() == PREFKEY(bpm_dn))
+            if (k.is(PREFKEY(bpm_dn)))
             {
                 midibpm newbpm = perf().decrement_beats_per_minute();
                 m_adjust_bpm->set_value(double(newbpm));
             }
-            else if (k.key() == PREFKEY(bpm_up))
+            else if (k.is(PREFKEY(bpm_up)))
             {
                 midibpm newbpm = perf().increment_beats_per_minute();
                 m_adjust_bpm->set_value(double(newbpm));
@@ -3006,24 +3102,24 @@ mainwnd::on_key_press_event (GdkEventKey * ev)
              * perform function.
              */
 
-            if (k.key() == PREFKEY(screenset_dn) || k.key() == SEQ64_Page_Down)
+            if (k.is(PREFKEY(screenset_dn)) || k.is(SEQ64_Page_Down))
             {
                 int newss = perf().decrement_screenset();
-                set_screenset(newss);                     /* does it all now */
+                (void) set_screenset(newss);            /* does it all now */
             }
-            else if (k.key() == PREFKEY(screenset_up) || k.key() == SEQ64_Page_Up)
+            else if (k.is(PREFKEY(screenset_up)) || k.is(SEQ64_Page_Up))
             {
                 int newss = perf().increment_screenset();
-                set_screenset(newss);                     /* does it all now */
+                (void) set_screenset(newss);            /* does it all now */
             }
 #ifdef SEQ64_MAINWND_TAP_BUTTON
-            else if (k.key() == PREFKEY(tap_bpm))
+            else if (k.is(PREFKEY(tap_bpm)))
             {
                 tap();
             }
 #endif
 #ifdef SEQ64_STAZED_MENU_BUTTONS
-            else if (k.key() == PREFKEY(toggle_mutes))
+            else if (k.is(PREFKEY(toggle_mutes)))
             {
                 /*
                  * TODO: SEQ64_MULTI_MAINWND
@@ -3031,27 +3127,28 @@ mainwnd::on_key_press_event (GdkEventKey * ev)
 
                 m_main_wid->toggle_playing_tracks();
             }
-            else if (k.key() == PREFKEY(song_mode))
+            else if (k.is(PREFKEY(song_mode)))
             {
                 toggle_song_mode();
             }
-            else if (k.key() == PREFKEY(menu_mode))
+            else if (k.is(PREFKEY(menu_mode)))
             {
                 toggle_menu_mode();
             }
 #endif
 #ifdef SEQ64_SONG_RECORDING
-            else if (k.key() == PREFKEY(song_record))
+            else if (k.is(PREFKEY(song_record)))
             {
                 toggle_song_record();
             }
+
             /*
              * Handle this like the queue key, in
              * perform::mainwnd_key_event().
              *
-            else if (k.key() == PREFKEY(oneshot_queue))
+            else if (k.is(PREFKEY(oneshot_queue)))
             {
-                // TODO              toggle_menu_mode();
+                // TODO: toggle_menu_mode();
             }
              */
 #endif
@@ -3197,11 +3294,11 @@ mainwnd::on_key_press_event (GdkEventKey * ev)
             }
             else
             {
-                if (k.key() == PREFKEY(pattern_edit))
+                if (k.is(PREFKEY(pattern_edit)))
                 {
                     m_call_seq_edit = ! m_call_seq_edit;
                 }
-                else if (k.key() == PREFKEY(pattern_shift))
+                else if (k.is(PREFKEY(pattern_shift)))
                 {
                     ++m_call_seq_shift;
                     if (m_call_seq_shift == 3)
@@ -3213,7 +3310,7 @@ mainwnd::on_key_press_event (GdkEventKey * ev)
 
                     set_status_text(temp);
                 }
-                else if (k.key() == PREFKEY(event_edit))
+                else if (k.is(PREFKEY(event_edit)))
                 {
                     m_call_seq_eventedit = ! m_call_seq_eventedit;
                 }
@@ -3230,9 +3327,9 @@ mainwnd::on_key_press_event (GdkEventKey * ev)
                     bool ok = is_ctrl_key(ev);
                     if (ok)
                     {
-                        if (k.key() == SEQ64_l)
+                        if (k.is(SEQ64_l))
                             perf().learn_toggle();
-                        else if (k.key() == SEQ64_p)
+                        else if (k.is(SEQ64_p))
                             jack_dialog();
                     }
                 }

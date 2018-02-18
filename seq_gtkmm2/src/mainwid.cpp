@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2018-01-11
+ * \updates       2018-02-17
  * \license       GNU GPLv2 or above
  *
  *  Note that this representation is, in a sense, inside the mainwnd
@@ -85,41 +85,11 @@ update_mainwid_sequences ()
 }
 
 /**
- * c_mainwnd_x was the width of the main pattern/sequence grid, in pixels.
- * Affected by the c_mainwid_border and c_mainwid_spacing values.  Moved to
- * the user_settings::mainwid_width() function, replaces c_mainwid_x.
- *
- * c_mainwnd_y was the height of the main pattern/sequence grid, in pixels.
- * Affected by the c_mainwid_border and c_control_height values.  Moved to the
- * user_settings::mainwid_width() function, replaces c_mainwid_y.
- *
- * The width of the main pattern/sequence grid, in pixels.  Affected by
- * the c_mainwid_border and c_mainwid_spacing values.
- */
-
-#if ! defined SEQ64_MULTI_MAINWID
-
-const int c_mainwid_x =
-    2 + (c_seqarea_x + c_mainwid_spacing) * SEQ64_DEFAULT_MAINWND_COLUMNS -
-        c_mainwid_spacing + c_mainwid_border * 2;
-
-/*
- * The height of the main pattern/sequence grid, in pixels.  Affected by
- * the c_mainwid_border and c_control_height values.
- */
-
-const int c_mainwid_y =
-    (c_seqarea_y + c_mainwid_spacing) * SEQ64_DEFAULT_MAINWND_ROWS +
-         (c_control_height + c_mainwid_border * 2) - 16;
-
-#endif  // not defined SEQ64_MULTI_MAINWID
-
-/**
- *  This constructor sets all of the members.  And it asks for a size of
- *  c_mainwid_x by c_mainwid_y.  It adds GDK masks for button presses,
- *  releases, motion, key presses, and focus changes.  Also logs a
- *  self-referential singleton pointer to use for the current-edit highlighting
- *  support.
+ *  This constructor sets all of the members.  And it asks for its size from
+ *  usr().mainwid_width() and usr().mainwid_height functions.  It adds GDK
+ *  masks for button presses, releases, motion, key presses, and focus
+ *  changes.  Also logs a self-referential singleton pointer to use for the
+ *  current-edit highlighting support.
  *
  * \param p
  *      Provides the reference to the all-important perform object.
@@ -129,37 +99,17 @@ const int c_mainwid_y =
  *      SEQ64_MULTI_MAINWND is defined, but doesn't hurt much to have it
  *      hardwired here, and it could be a good feature independent of
  *      multi-mainwid support.  The default value is 0.
- *
- * \param multiwid
- *      If multi-mainwid support is built in, and is in force, then this
- *      parameter is true.
  */
 
-mainwid::mainwid
-(
-    perform & p, int ss
-#if defined SEQ64_MULTI_MAINWID
-    ,
-    bool multiwid
-#endif
-) :
-    gui_drawingarea_gtk2
-    (
-#if defined SEQ64_MULTI_MAINWID
-        p, usr().mainwid_width(), usr().mainwid_height()
-#else
-        p, c_mainwid_x, c_mainwid_y
-#endif
-    ),
+mainwid::mainwid (perform & p, int ss)
+ :
+    gui_drawingarea_gtk2    (p, usr().mainwid_width(), usr().mainwid_height()),
     seqmenu                 (p),
     m_armed_progress_color
     (
         progress_color() == black() ? white() : progress_color()
     ),
     m_moving_seq            (),                 // a moving sequence object
-#if defined SEQ64_MULTI_MAINWID
-    m_is_multi_wid          (multiwid),
-#endif
     m_button_down           (false),
     m_moving                (false),
     m_old_seq               (0),
@@ -167,34 +117,26 @@ mainwid::mainwid
     m_last_tick_x           (),                 // array of size c_max_sequence
     m_mainwnd_rows          (usr().mainwnd_rows()),
     m_mainwnd_cols          (usr().mainwnd_cols()),
-    m_seqarea_x             (c_seqarea_x),
-    m_seqarea_y             (c_seqarea_y),
-    m_seqarea_seq_x         (c_seqarea_seq_x),
-    m_seqarea_seq_y         (c_seqarea_seq_y),
+    m_seqarea_x             (usr().seqarea_x()),
+    m_seqarea_y             (usr().seqarea_y()),
+    m_seqarea_seq_x         (usr().seqarea_seq_x()),
+    m_seqarea_seq_y         (usr().seqarea_seq_y()),
 #if defined SEQ64_MULTI_MAINWID
     m_mainwid_x             (usr().mainwid_width()),
     m_mainwid_y             (usr().mainwid_height()),
 #else
-    m_mainwid_x
-    (
-        2 + (c_seqarea_x + c_mainwid_spacing) * m_mainwnd_cols -
-            c_mainwid_spacing + c_mainwid_border * 2
-    ),
-    m_mainwid_y
-    (
-        (c_seqarea_y + c_mainwid_spacing) * m_mainwnd_rows +
-             c_control_height + c_mainwid_border * 2
-    ),
+    m_mainwid_x             (usr().mainwid_x()),
+    m_mainwid_y             (usr().mainwid_y()),
 #endif
-    m_mainwid_border_x      (c_mainwid_border + usr().mainwid_width_fudge()),
-    m_mainwid_border_y      (c_mainwid_border + usr().mainwid_width_fudge()),
-    m_mainwid_spacing       (c_mainwid_spacing),
-    m_text_size_x           (font_render().char_width()),
-    m_text_size_y           (font_render().padded_height()),
+    m_mainwid_border_x      (usr().mainwid_border_x()),
+    m_mainwid_border_y      (usr().mainwid_border_y()),
+    m_mainwid_spacing       (usr().mainwid_spacing()),
+    m_text_size_x           (usr().scale_size(font_render().char_width())),
+    m_text_size_y           (usr().scale_size(font_render().padded_height())),
     m_max_sets              (c_max_sets),
     m_screenset_slots       (m_mainwnd_rows * m_mainwnd_cols),
     m_screenset_offset      (m_screenset * m_screenset_slots),
-    m_progress_height       (m_seqarea_seq_y + 3)
+    m_progress_height       (usr().seqarea_seq_y() + 3)
 {
     if (is_nullptr(gs_mainwid_pointer))
         gs_mainwid_pointer = this;
@@ -418,22 +360,38 @@ mainwid::draw_sequence_on_pixmap (int seqnum)
                 int charx = base_x + m_seqarea_x - 3;
                 int chary = base_y + m_text_size_y * 4 - 2;
                 int slot = perf().slot_number(seqnum);
-                char key = perf().lookup_slot_key(seqnum);
-                char shift = char(PREFKEY(pattern_shift));
-                if ((shift > 0) && usr().is_variset())
+                char key = char(perf().lookup_slot_key(seqnum));
+                if (key > 0)
                 {
-                    if (slot >= (2 * c_seqs_in_set) && slot < (3 * c_seqs_in_set))
-                        snprintf(temp, sizeof temp, "%c%c%c", shift, shift, key);
-                    else if (slot >= c_seqs_in_set && slot < (2 * c_seqs_in_set))
-                        snprintf(temp, sizeof temp, "%c%c", shift, key);
+                    char sh = char(PREFKEY(pattern_shift));
+                    if ((sh > 0) && usr().is_variset())
+                    {
+                        if
+                        (
+                            slot >= (2 * c_seqs_in_set) &&
+                            slot < (3 * c_seqs_in_set)
+                        )
+                        {
+                            snprintf(temp, sizeof temp, "%c%c%c", sh, sh, key);
+                        }
+                        else if
+                        (
+                            slot >= c_seqs_in_set && slot < (2 * c_seqs_in_set)
+                        )
+                        {
+                            snprintf(temp, sizeof temp, "%c%c", sh, key);
+                        }
+                        else
+                        {
+                            snprintf(temp, sizeof temp, "%c", key);
+                        }
+                    }
                     else
                         snprintf(temp, sizeof temp, "%c", key);
-                }
-                else
-                    snprintf(temp, sizeof temp, "%c", key);
 
-                charx -= strlen(temp) * m_text_size_x;
-                render_string_on_pixmap(charx, chary, temp, col);
+                    charx -= strlen(temp) * m_text_size_x;
+                    render_string_on_pixmap(charx, chary, temp, col);
+                }
             }
 
             /*
@@ -877,10 +835,11 @@ mainwid::seq_from_xy (int x, int y)
 
 /**
  *  Set the current screen-set.  Note that m_screenset_slots =
- *  m_mainwnd_rows * m_mainwnd_cols.
+ *  m_mainwnd_rows * m_mainwnd_cols and this will also match
+ *  perform::m_seqs_in_set.
  *
  *  This function calls perform::set_screenset(), which recapitulates the old
- *  code above completely, whereas perform::set-offset() recapitulates only
+ *  code above completely, whereas perform::set_offset() recapitulates only
  *  the line of code immediately above it.  However, note that there is a
  *  back-and-forth between setting the screenset via perform (using MIDI
  *  control) versus the GUI in the mainwnd class.  Probably useful to add a
@@ -900,27 +859,26 @@ mainwid::seq_from_xy (int x, int y)
  */
 
 int
-mainwid::set_screenset (int ss, bool setperf)
+mainwid::set_screenset (int ss)
 {
-    /*
-     * TODO:  consider only doing this if ss != m_screenset.
-     */
-
     if (ss != m_screenset)
-    {
-#if defined SEQ64_MULTI_MAINWID
-    if (m_is_multi_wid || setperf)
-        perf().set_screenset(ss);
-#else
-    if (setperf)
-        perf().set_screenset(ss);
-#endif
+        log_screenset(ss);          /* changes m_screenset and the offset   */
 
-    m_screenset = perf().screenset();
-    m_screenset_offset = perf().screenset_offset();
-    reset();                                    /* redraws the window   */
-    }
     return m_screenset;
+}
+
+/**
+ * \setter m_screenset
+ *      This function is used for altering the current screen-set
+ *      displayed by a single mainwid in multi-mainwid mode.
+ */
+
+void
+mainwid::log_screenset (int ss)
+{
+    m_screenset = ss;
+    m_screenset_offset = m_screenset_slots * ss;  // perf().screenset_offset(ss);
+    reset();
 }
 
 /**

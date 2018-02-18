@@ -24,7 +24,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom and Tim Deagan
  * \date          2015-07-24
- * \updates       2018-02-03
+ * \updates       2018-02-17
  * \license       GNU GPLv2 or above
  *
  *  This class is probably the single most important class in Sequencer64, as
@@ -176,9 +176,11 @@
  *  mute-groups only work on screen-set 0, where as with the patch (again
  *  ignoring snapshots), they apply to the "in-view" (or "current", or
  *  "active") screen-set.
+ *
+ *  Temporarily disabled for some deeper research.
  */
 
-#define SEQ64_USE_TDEAGAN_CODE
+#define SEQ64_USE_TDEAGAN_CODE_XXX
 
 /**
  *  The amount to increment the MIDI clock pulses.  MIDI clock normal comes
@@ -788,7 +790,7 @@ perform::clear_all ()
 
         std::string e;                          /* an empty string          */
         for (int sset = 0; sset < m_max_sets; ++sset)
-            set_screen_set_notepad(sset, e);
+            set_screenset_notepad(sset, e);
 
         set_have_undo(false);
         m_undo_vect.clear();                    /* ca 2016-08-16            */
@@ -943,7 +945,7 @@ perform::select_group_mute (int mutegroup)
         int groupbase = screenset_offset(mutegroup);    /* 1st seq in group */
         for (int s = 0; s < m_seqs_in_set; ++s)         /* variset issue    */
         {
-            int source = m_playscreen_offset + s;       /* m_screenset?     */
+            int source = m_playscreen_offset + s;       /* m_screenset? No. */
             int dest = groupbase + s;
             if (is_active(source))
             {
@@ -1329,6 +1331,9 @@ perform::set_and_copy_mute_group (int mutegroup)
  *
  * \change tdeagan 2015-12-22 via git pull.
  *      Replaced m_playscreen with m_screenset.
+ *
+ *  We are disabling Tim's fix for a bit in order to make sure we're doing
+ *  what Seq24 does with the playing set key. (Home).
  *
  *  It seems to us that the for (g) clause should have g range from 0 to
  *  m_max_sets, not m_seqs_in_set.  Done.
@@ -2198,32 +2203,38 @@ perform::log_current_tempo ()
  *  Encapsulates some calls used in mainwnd.  The value set here will
  *  represent the "active" screen-set in multi-window mode.
  *
+ * \param amount
+ *      Indicates the amount the screenset is to be decremented.  The default
+ *      value is 1.
+ *
  * \return
  *      Returns the decremented screen-set value.
  */
 
 int
-perform::decrement_screenset ()
+perform::decrement_screenset (int amount)
 {
-    int result = screenset() - 1;
-    set_screenset(result);
-    return result;
+    int result = screenset() - amount;
+    return set_screenset(result);
 }
 
 /**
  *  Encapsulates some calls used in mainwnd.  The value set here will
  *  represent the "active" screen-set in multi-window mode.
  *
+ * \param amount
+ *      Indicates the amount the screenset is to be incremented.  The default
+ *      value is 1.
+ *
  * \return
  *      Returns the incremented screen-set value.
  */
 
 int
-perform::increment_screenset ()
+perform::increment_screenset (int amount)
 {
-    int result = screenset() + 1;
-    set_screenset(result);
-    return result;
+    int result = screenset() + amount;
+    return set_screenset(result);
 }
 
 /**
@@ -2248,7 +2259,9 @@ bool
 perform::is_seq_valid (int seq) const
 {
     if (seq >= 0 && seq < m_sequence_max)   /* do not use m_sequence_high   */
+    {
         return true;
+    }
     else
     {
         if (SEQ64_IS_NULL_SEQUENCE(seq))
@@ -2408,7 +2421,7 @@ perform::midi_control_off (int ctl)
  *  Copies the given string into m_screenset_notepad[].
  *
  * \param screenset
- *      The ID number of the screen set, an index into the
+ *      The ID number of the screen-set, an index into the
  *      m_screenset_notepad[] array.
  *
  * \param notepad
@@ -2423,7 +2436,7 @@ perform::midi_control_off (int ctl)
  */
 
 void
-perform::set_screen_set_notepad
+perform::set_screenset_notepad
 (
     int screenset, const std::string & notepad, bool is_load_modification
 )
@@ -2443,7 +2456,7 @@ perform::set_screen_set_notepad
  *  Retrieves the given string from m_screenset_notepad[].
  *
  * \param screenset
- *      The ID number of the screen set, an index into the
+ *      The ID number of the screen-set, an index into the
  *      m_screenset_notepad[] array.  This value is validated.
  *
  * \return
@@ -2452,7 +2465,7 @@ perform::set_screen_set_notepad
  */
 
 const std::string &
-perform::get_screen_set_notepad (int screenset) const
+perform::get_screenset_notepad (int screenset) const
 {
     static std::string s_empty;
     if (is_screenset_valid(screenset))
@@ -2462,9 +2475,9 @@ perform::get_screen_set_notepad (int screenset) const
 }
 
 /**
- *  Sets the m_screenset value (the index or ID of the current screen set).
+ *  Sets the m_screenset value (the index or ID of the current screen-set).
  *  It's not clear that we need to set the "is modified" flag just because we
- *  changed the screen set, so we don't.
+ *  changed the screen-set, so we don't.
  *
  *  This function is called when incrementing and decrementing the screenset.
  *  Its counterpart, set_playing_screenset(), is called when the hot-key or the
@@ -2475,27 +2488,35 @@ perform::get_screen_set_notepad (int screenset) const
  *  it right.  Still undefined: SEQ64_USE_AUTO_SCREENSET_QUEUE.
  *
  * \param ss
- *      The index of the desired new screen set.  It is forced to range from
+ *      The index of the desired new screen-set.  It is forced to range from
  *      0 to m_max_sets - 1.  The clamping seems weird, but hews to seq24.
  *      What it does is let the user wrap around the screen-sets in the user
  *      interface.  The value set here will represent the "active" screen-set
  *      in multi-window mode.
+ *
+ * \return
+ *      Returns the actual final value of the screen-set that was set, i.e. the
+ *      m_screenset member value.
  */
 
-void
+int
 perform::set_screenset (int ss)
 {
     if (ss < 0)
         ss = m_max_sets - 1;
     else if (ss >= m_max_sets)
     {
+#if USE_THIS_DODGY_CODE
         if (m_screenset == 0)
             ss = m_max_sets - 1;    /* at zero, dropping to largest value   */
         else
             ss = 0;                 /* moving up from maximum back to 0     */
+#else
+        ss = 0;
+#endif
     }
 
-    if (ss != m_screenset)
+    if ((ss != m_screenset) && is_screenset_valid(ss))
     {
 #ifdef SEQ64_USE_AUTO_SCREENSET_QUEUE
         if (m_auto_screenset_queue)
@@ -2508,6 +2529,7 @@ perform::set_screenset (int ss)
         m_screenset_offset = screenset_offset(ss);
         unset_queued_replace();                 /* clear this new feature   */
     }
+    return m_screenset;
 }
 
 #ifdef SEQ64_USE_AUTO_SCREENSET_QUEUE
@@ -2572,11 +2594,11 @@ perform::swap_screenset_queues (int ss0, int ss1)
 #endif  // SEQ64_USE_AUTO_SCREENSET_QUEUE
 
 /**
- *  Sets the screen set that is active, based on the value of m_screenset.
+ *  Sets the screen-set that is active, based on the value of m_screenset.
  *  This function is called when one of the snapshot keys is pressed.
  *
  *  For each value up to m_seqs_in_set (32), the index of the current sequence
- *  in the current screen set (m_playscreen) is obtained.  If the sequence
+ *  in the current screen-set (m_playscreen) is obtained.  If the sequence
  *  is active and the sequence actually exists, it is processed; null
  *  sequences are no longer flagged as an error, they are just ignored.
  *
@@ -5924,7 +5946,7 @@ perform::lookup_keyevent_key (int seqnum)
  *  Like lookup_keyevent_key(), but assumes the slot number has already been
  *  correctly calculated.
  *
- * \param seqnum
+ * \param slot
  *      The number of the pattern/sequence for which to return the event
  *      key.  This value can range from 0 to c_seqs_in_set - 1 up to
  *      (3 * c_seqs_in_set) - 1, since we can support 32 hotkeys, plus these
@@ -5938,16 +5960,18 @@ perform::lookup_keyevent_key (int seqnum)
  */
 
 unsigned
-perform::lookup_slot_key (int seqnum)
+perform::lookup_slot_key (int slot)
 {
-    seqnum -= m_screenset_offset;
-    if (seqnum >= 0)
-        seqnum = seqnum % c_seqs_in_set;
+    if (slot >= 0 && slot < (3 * c_max_sequence))
+    {
+        slot %= c_max_keys;                         // c_seqs_in_set;
+        return keys().lookup_keyevent_key(slot);
+    }
     else
     {
-        errprintf("perform::lookup_slot_key(%d) error", seqnum);
+        errprintf("perform::lookup_slot_key(%d) error\n", slot);
+        return 0;
     }
-    return keys().lookup_keyevent_key(seqnum);
 }
 
 /**
@@ -6294,9 +6318,9 @@ perform::stop_key ()
 bool
 perform::playback_key_event (const keystroke & k, bool songmode)
 {
-    bool result = OR_EQUIVALENT(k.key(), keys().start(), keys().stop());
+    bool result = k.is(keys().start(), keys().stop());
     if (! result)
-        result = k.key() == keys().pause();
+        result = k.is(keys().pause());
 
     if (result)
     {
@@ -6305,7 +6329,7 @@ perform::playback_key_event (const keystroke & k, bool songmode)
 #ifdef USE_CONSOLIDATED_PLAYBACK
 
         playback_action_t action = PLAYBACK_STOP;
-        if (k.key() == keys().start())
+        if (k.is(keys().start()))
         {
             if (onekey)
             {
@@ -6317,13 +6341,13 @@ perform::playback_key_event (const keystroke & k, bool songmode)
             else if (! is_running())
                 action = PLAYBACK_START;
         }
-        else if (k.key() == keys().pause())
+        else if (k.is(keys().pause()))
             action = PLAYBACK_PAUSE;
 
 #else   // USE_CONSOLIDATED_PLAYBACK
 
         bool isplaying = false;
-        if (k.key() == keys().start())
+        if (k.is(keys().start()))
         {
             if (onekey)
             {
@@ -6348,11 +6372,11 @@ perform::playback_key_event (const keystroke & k, bool songmode)
                 isplaying = true;
             }
         }
-        else if (k.key() == keys().stop())
+        else if (k.is(keys().stop()))
         {
             stop_playing();
         }
-        else if (k.key() == keys().pause())
+        else if (k.is(keys().pause()))
         {
             if (is_running())
                 pause_playing(songmode);

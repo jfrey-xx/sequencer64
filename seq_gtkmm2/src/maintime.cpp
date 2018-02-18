@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-07-23
+ * \updates       2018-02-07
  * \license       GNU GPLv2 or above
  *
  *  The "time" window is the horizontal bar at the upper right of the main
@@ -67,10 +67,13 @@ namespace seq64
 
 maintime::maintime (perform & p, int ppqn)
  :
-    gui_drawingarea_gtk2    (p, c_maintime_x, c_maintime_y),
-    m_beat_width            (4),                                // TODO
-    m_bar_width             (16),                               // TODO
-    m_pill_width            (c_pill_width),
+    gui_drawingarea_gtk2
+    (
+        p, usr().scale_size(c_maintime_x), usr().scale_size(c_maintime_y)
+    ),
+    m_beat_width            (4),
+    m_bar_width             (16),
+    m_pill_width            (usr().scale_size(c_pill_width)),
     m_box_width             (m_window_x - 1),
     m_box_height            (m_window_y - 1),
     m_flash_width           (m_window_x - 4),

@@ -107,7 +107,6 @@ enum edit_mode_t
     EDIT_MODE_DRUM          /**< Edit as Drum input, using short notes.     */
 };
 
-
 #ifdef SEQ64_STAZED_EXPAND_RECORD
 
 /**

@@ -24,7 +24,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2017-09-17
+ * \updates       2018-02-14
  * \license       GNU GPLv2 or above
  *
  *  We are currently trying to get event processing to accomodate tempo
@@ -38,7 +38,7 @@
 #include "app_limits.h"                 /* SEQ64_SOLID_PIANOROLL_GRID   */
 #include "click.hpp"                    /* SEQ64_CLICK_LEFT, etc.       */
 #include "event.hpp"
-#include "gdk_basic_keys.h"
+#include "keystroke.hpp"                /* instead of gdk_basic_keys.h  */
 #include "gui_key_tests.hpp"            /* seq64::is_no_modifier()      */
 #include "perform.hpp"
 #include "seqevent.hpp"
@@ -145,8 +145,8 @@ seqevent::idle_redraw ()
 }
 
 /**
- *  If the window is realized, this function creates a pixmap with window
- *  dimensions, the updates the pixmap, and queues up a redraw.  This ends up
+ *  If the window is realized, this function creates a pixmap with the window
+ *  dimensions, then updates the pixmap, and queues up a redraw.  This ends up
  *  filling the background with dotted lines, etc.
  */
 
@@ -222,7 +222,7 @@ seqevent::draw_background ()
 
     int bpbar = m_seq.get_beats_per_bar();
     int bwidth = m_seq.get_beat_width();
-    int ticks_per_beat = 4 * m_ppqn / bwidth;
+    int ticks_per_beat = 4 * m_ppqn / bwidth;   // 4 --> bpbar ???????
     int ticks_per_major = bpbar * ticks_per_beat;
     int ticks_per_step = 6 * m_zoom;
     int endtick = (m_window_x * m_zoom) + m_scroll_offset_ticks;
@@ -283,10 +283,9 @@ seqevent::draw_background ()
 #else
     set_line(Gdk::LINE_SOLID);
 #endif
-    draw_rectangle_on_pixmap
-    (
-        black(), -1, 0, m_window_x + 1, m_window_y - 1, false
-    );
+    int wx = m_window_x + 1;
+    int wy = m_window_y - 1;
+    draw_rectangle_on_pixmap(black(), -1, 0, wx, wy, false);
 }
 
 /**
@@ -365,7 +364,7 @@ seqevent::update_pixmap ()
  *  Draws events on the given drawable object.  Very similar to
  *  seqdata::draw_events_on().
  *
- *  This function exercises the new version of get_nexxt_event(),
+ *  This function exercises the new version of get_next_event(),
  *  get_next_event_ex(), which allows (and forces) the caller to provide the
  *  event iterator.
  *
@@ -414,8 +413,7 @@ seqevent::draw_events_on_pixmap ()
 }
 
 /**
- *  This function currently just queues up a draw operation for the
- *  pixmap.
+ *  This function currently just queues up a draw operation for the pixmap.
  *
  *  Old comments:
  *
@@ -473,23 +471,16 @@ seqevent::draw_selection_on_window ()
     int y = (c_eventarea_y - c_eventevent_y) / 2;
     int h = c_eventevent_y;
     set_line(Gdk::LINE_SOLID);
-    draw_drawable                           /* replace old */
-    (
-        m_old.x, y, m_old.x, y, m_old.width + 1, h + 1
-    );
+
+    /* replace old */
+
+    draw_drawable(m_old.x, y, m_old.x, y, m_old.width + 1, h + 1);
     if (m_selecting)
     {
         x_to_w(m_drop_x, m_current_x, x, w);
         x -= m_scroll_offset_x;
         m_old.x = x;
         m_old.width = w;
-#if 0
-#ifdef SEQ64_USE_BLACK_SELECTION_BOX
-        draw_rectangle(black(), x, y, w, h, false);
-#else
-        draw_rectangle(dark_orange(), x, y, w, h, false);
-#endif
-#endif
         draw_rectangle(sel_paint(), x, y, w, h, false);
     }
     if (m_moving || m_paste)
@@ -497,13 +488,6 @@ seqevent::draw_selection_on_window ()
         int delta_x = m_current_x - m_drop_x;
         x = m_selected.x + delta_x;
         x -= m_scroll_offset_x;
-#if 0
-#ifdef SEQ64_USE_BLACK_SELECTION_BOX
-        draw_rectangle(black(), x, y, m_selected.width, h, false);
-#else
-        draw_rectangle(dark_orange(), x, y, m_selected.width, h, false);
-#endif
-#endif
         draw_rectangle(sel_paint(), x, y, m_selected.width, h, false);
         m_old.x = x;
         m_old.width = m_selected.width;
@@ -573,9 +557,9 @@ seqevent::snap_x (int & x)
 }
 
 /**
- *  Drops (adds) an event at the given tick. It sets the first byte
- *  properly for after-touch, program-change, channel-pressure, and
- *  pitch-wheel.  The type of event is determined by m_status.
+ *  Drops (adds) an event at the given tick. It sets the first byte properly
+ *  for after-touch, program-change, channel-pressure, and pitch-wheel.  The
+ *  type of event is determined by m_status.
  *
  * \param tick
  *      The destination time (division, pulse, tick) for the event to be
@@ -583,7 +567,7 @@ seqevent::snap_x (int & x)
  *
  * \param istempo
  *      Indicates if the event is a tempo event.  If so, we add a fake tempo
- *      event of BPM = 120.
+ *      event of BPM = 120.  Defaults to false.
  */
 
 void
@@ -598,8 +582,14 @@ seqevent::drop_event (midipulse tick, bool istempo)
     else
     {
         midibyte status = m_status;
-        if (! event::is_strict_note_msg(status))        /* a stazed fix     */
-        {
+
+        /*
+         * This fix breaks drawing events in the event pane.  Commented out.
+         *
+         * if (! event::is_strict_note_msg(status))     // a stazed fix
+         * {
+         */
+
             midibyte d0 = m_cc;
             midibyte d1 = 0x40;
             if (status == EVENT_AFTERTOUCH)
@@ -612,7 +602,9 @@ seqevent::drop_event (midipulse tick, bool istempo)
                 d0 = 0;
 
             m_seq.add_event(tick, status, d0, d1, true);
-        }
+    /*
+     *  }
+     */
     }
 }
 
@@ -696,33 +688,8 @@ bool
 seqevent::on_button_press_event (GdkEventButton * ev)
 {
     bool result = false;
-
-#if 0
-    interaction_method_t interactionmethod = rc().interaction_method();
-    switch (interactionmethod)
-    {
-    case e_fruity_interaction:
-
-        // WE NEED TO WORK THIS OUT!!!!
-
-        (void) m_fruity_interaction.on_button_press_event(ev, *this);
-        result = m_seq24_interaction.on_button_press_event(ev, *this);
-        break;
-
-    case e_seq24_interaction:
-
-        // WE NEED TO WORK THIS OUT!!!!
-
-        result = m_seq24_interaction.on_button_press_event(ev, *this);
-        break;
-
-    default:
-        break;
-    }
-#endif  // 0
-
     midipulse tick_s, tick_w;
-    grab_focus();                 // NEW: I think this would be helpful
+    grab_focus();
     convert_x(c_eventevent_x, tick_w);
     set_current_drop_x(int(ev->x + m_scroll_offset_x));
     m_old.x = m_old.y = m_old.width = m_old.height = 0;
@@ -779,9 +746,13 @@ seqevent::on_button_press_event (GdkEventButton * ev)
                     m_cc, sequence::e_is_selected
                 );
 
+#ifdef USE_STAZED_SELECTION_EXTENSIONS
+
                 /*
                  * Stazed fix: if we didn't select anything (user clicked empty
                  * space), then unselect all notes, and start selecting.
+                 *
+                 * DOES THIS BREAK EVENT CREATION??????????
                  */
 
                 if (event::is_strict_note_msg(m_status))
@@ -789,6 +760,7 @@ seqevent::on_button_press_event (GdkEventButton * ev)
                     m_seq.select_linked(tick_s, tick_f, m_status);
                     m_seq.set_dirty();
                 }
+#endif
 
                 if (eventcount == 0)
                 {
@@ -797,8 +769,7 @@ seqevent::on_button_press_event (GdkEventButton * ev)
 
                     eventcount = m_seq.select_events
                     (
-                        tick_s, tick_f, m_status,
-                        m_cc, sequence::e_select_one
+                        tick_s, tick_f, m_status, m_cc, sequence::e_select_one
                     );
 
                     /*
@@ -821,13 +792,12 @@ seqevent::on_button_press_event (GdkEventButton * ev)
                 }
                 eventcount = m_seq.select_events
                 (
-                    tick_s, tick_f, m_status,
-                    m_cc, sequence::e_is_selected
+                    tick_s, tick_f, m_status, m_cc, sequence::e_is_selected
                 );
                 if (eventcount > 0)             /* get box selections are in */
                 {
-                    m_moving_init = true;
                     int note;
+                    m_moving_init = true;
                     m_seq.get_selected_box(tick_s, note, tick_f, note);
                     tick_f += tick_w;
                     convert_t(tick_s, x); /* convert box to X,Y values */
@@ -888,34 +858,7 @@ bool
 seqevent::on_button_release_event (GdkEventButton * ev)
 {
     bool result = false;
-
-#if 0
-    interaction_method_t interactionmethod = rc().interaction_method();
-    switch (interactionmethod)
-    {
-
-        // WE NEED TO WORK THIS OUT!!!!
-
-    case e_fruity_interaction:
-        (void) m_fruity_interaction.on_button_release_event(ev, *this);
-        result = m_seq24_interaction.on_button_release_event(ev, *this);
-        break;
-
-        // WE NEED TO WORK THIS OUT!!!!
-
-
-    case e_seq24_interaction:
-        result = m_seq24_interaction.on_button_release_event(ev, *this);
-        break;
-
-    default:
-        break;
-    }
-
-#endif  // 0
-
-    midipulse tick_s;
-    midipulse tick_f;
+    midipulse tick_s, tick_f;
     grab_focus();
     m_current_x = int(ev->x) + m_scroll_offset_x;
     if (m_moving)
@@ -939,7 +882,7 @@ seqevent::on_button_release_event (GdkEventButton * ev)
 #ifdef USE_STAZED_SELECTION_EXTENSIONS
 
             /*
-             * Stazed fix: if we did'nt select anything (user clicked empty
+             * Stazed fix: if we didn't select anything (user clicked empty
              * space), then unselect all notes, and start selecting.
              */
 
@@ -953,8 +896,8 @@ seqevent::on_button_release_event (GdkEventButton * ev)
         }
         if (m_moving)
         {
-            delta_x -= m_move_snap_offset_x;  /* adjust for snap       */
-            convert_x(delta_x, delta_tick);   /* to screen coordinates */
+            delta_x -= m_move_snap_offset_x;        /* adjust for snap       */
+            convert_x(delta_x, delta_tick);         /* to screen coordinates */
             m_seq.move_selected_notes(delta_tick, 0);
             result = true;
         }
@@ -970,10 +913,8 @@ seqevent::on_button_release_event (GdkEventButton * ev)
     m_moving_init = false;
     m_painting = false;
     m_seq.unpaint_all();
-
     update_pixmap();                  /* if a click, something changed */
     draw_pixmap_on_window();
-
     return result;
 }
 
@@ -996,34 +937,6 @@ bool
 seqevent::on_motion_notify_event (GdkEventMotion * ev)
 {
     bool result = false;
-
-#if 0
-
-    interaction_method_t interactionmethod = rc().interaction_method();
-    switch (interactionmethod)
-    {
-
-        // WE NEED TO WORK THIS OUT!!!!
-
-    case e_fruity_interaction:
-        (void) m_fruity_interaction.on_motion_notify_event(ev, *this);
-        result = m_seq24_interaction.on_motion_notify_event(ev, *this);
-        break;
-
-
-        // WE NEED TO WORK THIS OUT!!!!
-
-    case e_seq24_interaction:
-        result = m_seq24_interaction.on_motion_notify_event(ev, *this);
-        break;
-
-    default:
-        break;
-    }
-
-#endif  // 0
-
-    midipulse tick = 0;
     if (m_moving_init)
     {
         m_moving_init = false;
@@ -1039,6 +952,7 @@ seqevent::on_motion_notify_event (GdkEventMotion * ev)
     }
     if (m_painting)
     {
+        midipulse tick = 0;
         m_current_x = int(ev->x) + m_scroll_offset_x;
         snap_x(m_current_x);
         convert_x(m_current_x, tick);
@@ -1101,7 +1015,8 @@ seqevent::on_key_press_event (GdkEventKey * ev)
     bool result = false;
     if (CAST_EQUIVALENT(ev->type, SEQ64_KEY_PRESS))
     {
-        if (ev->keyval == SEQ64_Delete || ev->keyval == SEQ64_BackSpace)
+        keystroke k(ev->keyval, SEQ64_KEYSTROKE_PRESS);
+        if (k.is(SEQ64_Delete, SEQ64_BackSpace))
         {
             m_seq.cut_selected(false);      /* cut events without copying   */
             result = true;
@@ -1112,22 +1027,22 @@ seqevent::on_key_press_event (GdkEventKey * ev)
              * Do we really need to test the capital letters?
              */
 
-            if (ev->keyval == SEQ64_x || ev->keyval == SEQ64_X)     /* cut  */
+            if (k.is(SEQ64_x, SEQ64_X))     /* cut  */
             {
                 m_seq.cut_selected();       /* cut events with copying      */
                 result = true;
             }
-            if (ev->keyval == SEQ64_c || ev->keyval == SEQ64_C)     /* copy */
+            if (k.is(SEQ64_c, SEQ64_C))     /* copy */
             {
                 m_seq.copy_selected();
                 result = true;
             }
-            if (ev->keyval == SEQ64_v || ev->keyval == SEQ64_V)    /* paste */
+            if (k.is(SEQ64_v, SEQ64_V))     /* paste */
             {
                 start_paste();              /* also calls perf().modify()   */
                 result = true;
             }
-            if (ev->keyval == SEQ64_z || ev->keyval == SEQ64_Z)     /* Undo */
+            if (k.is(SEQ64_z, SEQ64_Z))     /* Undo */
             {
                 m_seq.pop_undo();   // how to detect all modifications undone?
                 result = true;
@@ -1139,18 +1054,18 @@ seqevent::on_key_press_event (GdkEventKey * ev)
         }
         if (! result)
         {
-            if (ev->keyval == SEQ64_p)
+            if (k.is(SEQ64_p))
             {
                 // WORK THIS OUT !!!!!!!!!!!
                 // m_seq24_interaction.set_adding(true, *this);
                 set_adding(true);
                 result = true;
             }
-            else if (ev->keyval == SEQ64_x)         /* "x-scape" the mode   */
+            else if (k.is(SEQ64_x))         /* "x-scape" the mode   */
             {
                 // WORK THIS OUT !!!!!!!!!!!
                 // m_seq24_interaction.set_adding(false, *this);
-                set_adding(true);
+                set_adding(false);
                 result = true;
             }
         }

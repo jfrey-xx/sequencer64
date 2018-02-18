@@ -25,7 +25,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2018-02-03
+ * \updates       2018-02-18
  * \license       GNU GPLv2 or above
  *
  *  The functionality of this class also includes handling some of the
@@ -97,7 +97,7 @@ sequence::sequence (int ppqn)
     m_events_undo               (),
     m_events_redo               (),
     m_iterator_draw             (m_events.begin()),
-    m_channel_match             (false),        // a future stazed feature
+    m_channel_match             (false),        // stazed
     m_midi_channel              (0),
     m_bus                       (0),
     m_song_mute                 (false),
@@ -140,12 +140,8 @@ sequence::sequence (int ppqn)
     m_maxbeats                  (c_maxbeats),
     m_ppqn                      (0),            /* set in constructor body   */
     m_seq_number                (-1),           /* may be set later          */
-#ifdef USE_SEQUENCE_COLOR
-    m_seq_colour                (0),
-#endif
-#ifdef USE_SEQUENCE_EDIT_MODE
+    m_seq_color                 (NONE),
     m_seq_edit_mode             (EDIT_MODE_NOTE),   /* edit_mode_t           */
-#endif
     m_length                    (0),            /* set in constructor body   */
     m_snap_tick                 (0),            /* set in constructor body   */
     m_time_beats_per_measure    (4),
@@ -2805,7 +2801,7 @@ sequence::change_event_data_lfo
 
 /**
  *  Adds a note of a given length and  note value, at a given tick
- *  location.  It adds a single note-on / note-off pair.
+ *  location.  It adds a single Note-On/Note-Off pair.
  *
  *  The paint parameter indicates if we care about the painted event,
  *  so then the function runs though the events and deletes the painted

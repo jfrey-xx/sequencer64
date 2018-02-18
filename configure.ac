@@ -27,6 +27,7 @@ dnl ---------------------------------------------------------------------------
 AC_PREREQ(2.60)
 AC_REVISION($Revision: 0.94$)dnl
 AC_INIT(Sequencer64, [0.94.6], [ahlstromcj@gmail.com])
+AC_INIT(Sequencer64, [0.94.5], [ahlstromcj@gmail.com])
 AC_CONFIG_AUX_DIR([aux-files])
 
 dnl See AC_CONFIG_SRCDIR

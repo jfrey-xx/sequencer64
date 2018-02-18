@@ -24,7 +24,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2018-01-15
+ * \updates       2018-02-17
  * \license       GNU GPLv2 or above
  *
  *  For a quick guide to the MIDI format, see, for example:
@@ -368,6 +368,10 @@ midifile::read_varinum ()
  *      tune, and locate it in a specific screen-set.  If this parameter is
  *      non-zero, then we will assume that the perform data is dirty.
  *
+ * \param importing
+ *      Indicates that we are importing a file, and do not want to parse/erase
+ *      any "proprietrary" information from the performance.
+ *
  * \return
  *      Returns true if the parsing succeeded.  Note that the error status is
  *      saved in m_error_is_fatal, and a message (to display later) is saved
@@ -375,7 +379,7 @@ midifile::read_varinum ()
  */
 
 bool
-midifile::parse (perform & p, int screenset)
+midifile::parse (perform & p, int screenset, bool importing)
 {
     bool result = true;
     std::ifstream file
@@ -447,8 +451,10 @@ midifile::parse (perform & p, int screenset)
     if (result)
     {
         if (file_size > m_pos)                      /* any more data left?  */
-            result = parse_proprietary_track(p, file_size);
-
+        {
+            if (! importing)
+                result = parse_proprietary_track(p, file_size);
+        }
         if (result && screenset != 0)
              p.modify();                            /* modification flag    */
     }
@@ -1393,7 +1399,7 @@ midifile::parse_proprietary_track (perform & p, int file_size)
                 for (midishort i = 0; i < len; ++i)
                     notess += read_byte();                  /* unsigned!    */
 
-                p.set_screen_set_notepad(x, notess, true);  /* load time    */
+                p.set_screenset_notepad(x, notess, true);  /* load time    */
             }
         }
         seqspec = parse_prop_header(file_size);
@@ -2310,7 +2316,7 @@ midifile::write_proprietary_track (perform & p)
     int cnotesz = 2;                            /* first value is short     */
     for (int s = 0; s < c_max_sets; ++s)
     {
-        const std::string & note = p.get_screen_set_notepad(s);
+        const std::string & note = p.get_screenset_notepad(s);
         cnotesz += 2 + note.length();           /* short + note length      */
     }
 
@@ -2359,7 +2365,7 @@ midifile::write_proprietary_track (perform & p)
     write_short(c_max_sets);                    /* data, not a tag          */
     for (int s = 0; s < c_max_sets; ++s)        /* see "cnotesz" calc       */
     {
-        const std::string & note = p.get_screen_set_notepad(s);
+        const std::string & note = p.get_screenset_notepad(s);
         write_short(note.length());
         for (unsigned n = 0; n < unsigned(note.length()); ++n)
             write_byte(note[n]);

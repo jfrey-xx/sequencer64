@@ -26,7 +26,7 @@
  * \library       sequencer64 application
  * \author        Seq24 team; modifications by Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2018-01-29
+ * \updates       2018-02-06
  * \license       GNU GPLv2 or above
  *
  *  Note that the parse function has some code that is not yet enabled.
@@ -397,6 +397,7 @@ userfile::parse (perform & /* p */)
                 }
 
 #if defined SEQ64_MULTI_MAINWID
+
                 if (next_data_line(file))
                 {
                     sscanf(m_line, "%d", &scratch);
@@ -414,7 +415,15 @@ userfile::parse (perform & /* p */)
                     sscanf(m_line, "%d", &scratch);
                     usr().block_independent(scratch != 0);
                 }
+
 #endif  // SEQ64_MULTI_MAINWID
+
+                if (next_data_line(file))
+                {
+                    float scale = 1.0f;
+                    sscanf(m_line, "%f", &scale);
+                    usr().window_scale(scale);
+                }
             }
         }
         usr().normalize();    /* calculate derived values */
@@ -587,12 +596,13 @@ userfile::write (const perform & /* a_perf */ )
     if (rc().legacy_format())
     {
         file <<
-           "# Sequencer64 user configuration file (legacy Seq24 0.9.2 format)\n";
+           "# Sequencer64 user-configuration file (legacy Seq24 0.9.2 format)\n";
     }
     else
-        file << "# Sequencer64 0.94.0 (and above) user configuration file\n";
+        file << "# Sequencer64 0.94.0 (and above) user-configuration file\n";
 
-    file << "#\n"
+    file <<
+        "#\n"
         "# Created by reading the following file and writing it out via the\n"
         "# Sequencer64 application:\n"
         "#\n"
@@ -605,21 +615,21 @@ userfile::write (const perform & /* a_perf */ )
         "# control codes per channel.\n"
         ;
 
-    file << "#\n"
+    if (! rc().legacy_format())
+    {
+        file <<
+        "#\n"
         "# The [comments] section lets one document this file.  Lines starting\n"
         "# with '#' and '[' are ignored.  Blank lines are ignored.  To show a\n"
         "# blank line, add a space character to the line.\n"
-        ;
+            ;
 
-    /*
-     * [comments]
-     */
+        /*
+         * [comments]
+         */
 
-    file << "\n"
-        << "[comments]\n"
-        << "\n"
-        << usr().comments_block() << "\n"
-        ;
+        file << "\n[comments]\n\n" << usr().comments_block() << "\n";
+    }
 
     file <<
         "# 1. Define your instruments and their control-code names,\n"
@@ -1022,6 +1032,16 @@ userfile::write (const perform & /* a_perf */ )
             "\n"
             << (usr().block_independent() ? "1" : "0")
             << "      # block_independent (set spinners for each block/wid)\n"
+            ;
+
+        file << "\n"
+            "# Specifies an enlargement of the main window of Sequencer64.\n"
+            "# The normal value is 1.0, which is the legacy sizing.  If this\n"
+            "# value is between 1.0 and 3.0, it will increase the size of all\n"
+            "# of the main window elements proportionately.\n"
+            "\n"
+            << usr().window_scale()
+            << "      # scales the main window upwards in size\n"
             ;
 
 #endif  // SEQ64_MULTI_MAINWID
