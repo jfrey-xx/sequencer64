@@ -1,4 +1,4 @@
-INSTALL for Sequencer64 v. 0.94.0 and above
+INSTALL for Sequencer64 v. 0.94.6 and above
 Chris Ahlstrom
 2015-09-10 to 2018-02-18
 
@@ -534,9 +534,13 @@ DEPENDENCIES:
          -  qtbase5-dev
          -  qtbase5-dev-tools
          -  qtdeclarative-dev-tools
+         -  qtdeclarative5-dev-tools *
+         -  qttools5-dev *
          -  qtchooser
          -  qtdesigner; optional if you want to tweak the GUIs, not huge,
             provided by the qtttools5-dev-tools package.
+
+         * If these are absent, "./bootstrap -ed -qt" never finishes.
 
    Documentation (now optional, must be built manually):
 

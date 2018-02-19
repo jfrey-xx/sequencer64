@@ -28,13 +28,13 @@ qperfroll::qperfroll(perform *a_perf,
 
     setFocusPolicy(Qt::StrongFocus);
 
-    for (int i = 0; i < qc_total_seqs; ++i)
+    for (int i = 0; i < c_max_sequence; ++i)
         m_sequence_active[i] = false;
 
     m_roll_length_ticks = mPerf->get_max_trigger();
     m_roll_length_ticks = m_roll_length_ticks -
-                          (m_roll_length_ticks % (c_ppqn * 16));
-    m_roll_length_ticks +=  c_ppqn * 64;
+                          (m_roll_length_ticks % (SEQ64_DEFAULT_PPQN * 16));
+    m_roll_length_ticks +=  SEQ64_DEFAULT_PPQN * 64;
 
     //start refresh timer to queue regular redraws
     mTimer = new QTimer(this);
@@ -46,7 +46,8 @@ qperfroll::qperfroll(perform *a_perf,
     mTimer->start();
 }
 
-void qperfroll::paintEvent(QPaintEvent *)
+void
+qperfroll::paintEvent(QPaintEvent *)
 {
     mPainter = new QPainter(this);
     mBrush = new QBrush(Qt::NoBrush);
@@ -81,9 +82,9 @@ void qperfroll::paintEvent(QPaintEvent *)
                            height() - 1);
 
         // jump 2 if 16th notes
-        if (m_beat_length < c_ppqn / 2)
+        if (m_beat_length < SEQ64_DEFAULT_PPQN / 2)
         {
-            i += (c_ppqn / m_beat_length);
+            i += (SEQ64_DEFAULT_PPQN / m_beat_length);
         }
         else
         {
@@ -109,20 +110,20 @@ void qperfroll::paintEvent(QPaintEvent *)
     int y_f = height() / c_names_y;
 
     //draw sequence block
-    long tick_on;
-    long tick_off;
-    long offset;
+    midipulse tickon;
+    midipulse tickoff;
+    midipulse offset;
     bool selected;
 
-    //    long tick_offset = c_ppqn * 16;
-    long tick_offset = 0;
-    long x_offset = tick_offset / (c_perf_scale_x * zoom);
+    //    long tickoffset = SEQ64_DEFAULT_PPQN * 16;
+    midipulse tickoffset = 0;
+    long x_offset = tickoffset / (c_perf_scale_x * zoom);
 
     for (int y = y_s; y <= y_f; y++)
     {
         int seqId = y;
 
-        if (seqId < qc_total_seqs)
+        if (seqId < c_max_sequence)
         {
             if (mPerf->is_active(seqId))
             {
@@ -133,17 +134,17 @@ void qperfroll::paintEvent(QPaintEvent *)
 
                 seq->reset_draw_trigger_marker();
 
-                long seq_length = seq->getLength();
+                midipulse seq_length = seq->get_length();
                 int length_w = seq_length / (c_perf_scale_x * zoom);
 
-                while (seq->get_next_trigger(&tick_on, &tick_off, &selected, &offset))
+                while (seq->get_next_trigger(tickon, tickoff, selected, offset))
                 {
 
-                    if (tick_off > 0)
+                    if (tickoff > 0)
                     {
 
-                        long x_on  = tick_on  / (c_perf_scale_x * zoom);
-                        long x_off = tick_off / (c_perf_scale_x * zoom);
+                        long x_on  = tickon  / (c_perf_scale_x * zoom);
+                        long x_off = tickoff / (c_perf_scale_x * zoom);
                         int  w     = x_off - x_on + 1;
 
                         int x = x_on;
@@ -196,11 +197,11 @@ void qperfroll::paintEvent(QPaintEvent *)
                         mPen->setColor(Qt::black);
                         mPainter->setPen(*mPen);
 
-                        long length_marker_first_tick = (tick_on - (tick_on % seq_length) + (offset % seq_length) - seq_length);
+                        long length_marker_first_tick = (tickon - (tickon % seq_length) + (offset % seq_length) - seq_length);
 
                         long tick_marker = length_marker_first_tick;
 
-                        while (tick_marker < tick_off)
+                        while (tick_marker < tickoff)
                         {
 
                             long tick_marker_x = (tick_marker / (c_perf_scale_x * zoom)) - x_offset;
@@ -211,22 +212,19 @@ void qperfroll::paintEvent(QPaintEvent *)
                             int height = highest_note - lowest_note;
                             height += 2;
 
-                            int length = seq->getLength();
+                            int length = seq->get_length();
 
-                            long tick_s;
-                            long tick_f;
+                            midipulse tick_s;
+                            midipulse tick_f;
                             int note;
 
                             bool selected;
 
                             int velocity;
-                            draw_type dt;
-
+                            seq64::draw_type_t dt;
                             seq->reset_draw_marker();
-
                             mPen->setColor(Qt::black);
                             mPainter->setPen(*mPen);
-
                             while ((dt = seq->get_next_note_event(&tick_s, &tick_f, &note,
                                                                   &selected, &velocity)) != DRAW_FIN)
                             {
@@ -259,7 +257,7 @@ void qperfroll::paintEvent(QPaintEvent *)
                                                        y + note_y);
                             }
 
-                            if (tick_marker > tick_on)
+                            if (tick_marker > tickon)
                             {
 
                                 //lines to break up the seq at each tick
@@ -322,7 +320,7 @@ void qperfroll::paintEvent(QPaintEvent *)
                        height() - 1);
 
     //draw playhead
-    long tick = mPerf->get_tick();
+    midipulse tick = mPerf->get_tick();
 
     int progress_x = tick / (c_perf_scale_x * zoom);
 
@@ -342,7 +340,8 @@ int qperfroll::getSnap() const
     return m_snap;
 }
 
-void qperfroll::set_snap(int snap)
+void
+qperfroll::set_snap(int snap)
 {
     m_snap = snap;
 }
@@ -352,7 +351,8 @@ QSize qperfroll::sizeHint() const
     return QSize(mPerf->get_max_trigger() / (zoom * c_perf_scale_x) + 2000, c_names_y * c_max_sequence + 1);
 }
 
-void qperfroll::mousePressEvent(QMouseEvent *event)
+void
+qperfroll::mousePressEvent(QMouseEvent *event)
 {
     //    if ( mPerf->is_active( m_drop_sequence ))
     //    {
@@ -368,7 +368,7 @@ void qperfroll::mousePressEvent(QMouseEvent *event)
     /* left mouse button */
     if (event->button() == Qt::LeftButton)
     {
-        long tick = m_drop_tick;
+        midipulse tick = m_drop_tick;
 
         /* add a new seq instance if we didnt select anything,
          * and are holding the right mouse btn */
@@ -378,7 +378,8 @@ void qperfroll::mousePressEvent(QMouseEvent *event)
 
             if (mPerf->is_active(m_drop_sequence))
             {
-                long seq_length = mPerf->get_sequence(m_drop_sequence)->getLength();
+                midipulse seq_length =
+                    mPerf->get_sequence(m_drop_sequence)->get_length();
 
                 bool trigger_state = mPerf->get_sequence(m_drop_sequence)->get_trigger_state(tick);
 
@@ -420,8 +421,8 @@ void qperfroll::mousePressEvent(QMouseEvent *event)
 
                 mPerf->get_sequence(m_drop_sequence)->select_trigger(tick);
 
-                long start_tick = mPerf->get_sequence(m_drop_sequence)->get_selected_trigger_start_tick();
-                long end_tick = mPerf->get_sequence(m_drop_sequence)->get_selected_trigger_end_tick();
+                midipulse start_tick = mPerf->get_sequence(m_drop_sequence)->get_selected_trigger_start_tick();
+                midipulse end_tick = mPerf->get_sequence(m_drop_sequence)->get_selected_trigger_end_tick();
 
                 //check for corner drag to grow sequence start
                 if (tick >= start_tick &&
@@ -500,7 +501,8 @@ void qperfroll::mousePressEvent(QMouseEvent *event)
 
 }
 
-void qperfroll::mouseReleaseEvent(QMouseEvent *event)
+void
+qperfroll::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton)
     {
@@ -546,9 +548,10 @@ void qperfroll::mouseReleaseEvent(QMouseEvent *event)
     mLastTick = 0;
 }
 
-void qperfroll::mouseMoveEvent(QMouseEvent *event)
+void
+qperfroll::mouseMoveEvent(QMouseEvent *event)
 {
-    long tick;
+    midipulse tick;
     int x = event->x();
 
     if (m_adding && m_adding_pressed)
@@ -557,13 +560,13 @@ void qperfroll::mouseMoveEvent(QMouseEvent *event)
 
         if (mPerf->is_active(m_drop_sequence))
         {
-            long seq_length = mPerf->get_sequence(m_drop_sequence)->getLength();
+            midipulse seq_length = mPerf->get_sequence(m_drop_sequence)->get_length();
 
             // snap to length of sequence
             if (mPerf->getSongRecordSnap())
                 tick = tick - (tick % seq_length);
 
-            long length = seq_length;
+            midipulse length = seq_length;
 
             mPerf->get_sequence(m_drop_sequence)
             ->grow_trigger(m_drop_tick, tick, length);
@@ -638,7 +641,8 @@ void qperfroll::mouseMoveEvent(QMouseEvent *event)
     mLastTick = tick;
 }
 
-void qperfroll::keyPressEvent(QKeyEvent *event)
+void
+qperfroll::keyPressEvent(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_Delete ||
             event->key() == Qt::Key_Backspace)
@@ -679,13 +683,15 @@ void qperfroll::keyPressEvent(QKeyEvent *event)
     }
 
 }
-void qperfroll::keyReleaseEvent(QKeyEvent *event)
+void
+qperfroll::keyReleaseEvent(QKeyEvent *event)
 {
 
 }
 
 /* performs a 'snap' on x */
-void qperfroll::snap_x(int *a_x)
+void
+qperfroll::snap_x(int *a_x)
 {
     // snap = number pulses to snap to
     // m_scale = number of pulses per pixel
@@ -700,51 +706,54 @@ void qperfroll::snap_x(int *a_x)
 }
 
 
-void qperfroll::snap_y(int *a_y)
+void
+qperfroll::snap_y(int *a_y)
 {
     *a_y = *a_y - (*a_y % c_names_y);
 }
 
 
-void qperfroll::convert_x(int a_x, long *a_tick)
+void
+qperfroll::convert_x(int a_x, midipulse *a_tick)
 {
-    long tick_offset = 0;
+    midipulse tickoffset = 0;
     *a_tick = a_x * (c_perf_scale_x * zoom);
-    *a_tick += tick_offset;
+    *a_tick += tickoffset;
 }
 
 
-void qperfroll::convert_xy(int a_x, int a_y, long *a_tick, int *a_seq)
+void
+qperfroll::convert_xy(int a_x, int a_y, midipulse *a_tick, int *a_seq)
 {
-    long tick_offset =  0;
-
+    midipulse tickoffset =  0;
     *a_tick = a_x * (c_perf_scale_x * zoom);
     *a_seq = a_y / c_names_y;
-
-    *a_tick += tick_offset;
-
-    if (*a_seq >= qc_total_seqs)
-        *a_seq = qc_total_seqs - 1;
+    *a_tick += tickoffset;
+    if (*a_seq >= c_max_sequence)
+        *a_seq = c_max_sequence - 1;
 
     if (*a_seq < 0)
         *a_seq = 0;
 }
 
-void qperfroll::half_split_trigger(int a_sequence, long a_tick)
+void
+qperfroll::half_split_trigger(int a_sequence, midipulse a_tick)
 {
     mPerf->push_trigger_undo();
     mPerf->get_sequence(a_sequence)->half_split_trigger(a_tick);
 }
 
 /* simply sets the snap member */
-void qperfroll::set_guides(int a_snap, int a_measure, int a_beat)
+void
+qperfroll::set_guides(int a_snap, int a_measure, int a_beat)
 {
     m_snap = a_snap;
     m_measure_length = a_measure;
     m_beat_length = a_beat;
 }
 
-void qperfroll::set_adding(bool a_adding)
+void
+qperfroll::set_adding(bool a_adding)
 {
     if (a_adding)
     {
@@ -761,28 +770,33 @@ void qperfroll::set_adding(bool a_adding)
     }
 }
 
-void qperfroll::undo()
+void
+qperfroll::undo()
 {
     mPerf->pop_trigger_undo();
 }
 
-void qperfroll::redo()
+void
+qperfroll::redo()
 {
     mPerf->pop_trigger_redo();
 }
 
-void qperfroll::zoom_in()
+void
+qperfroll::zoom_in()
 {
     if (zoom > 1)
         zoom *= 0.5;
 }
 
-void qperfroll::zoom_out()
+void
+qperfroll::zoom_out()
 {
     zoom *= 2;
 }
 
-void qperfroll::xy_to_rect(int a_x1, int a_y1, int a_x2, int a_y2,
+void
+qperfroll::xy_to_rect(int a_x1, int a_y1, int a_x2, int a_y2,
                            int *a_x, int *a_y, int *a_w, int *a_h)
 {
     if (a_x1 < a_x2)

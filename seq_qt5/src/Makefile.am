@@ -6,12 +6,46 @@
 # \library    	libseq_qt5 library
 # \author     	Chris Ahlstrom
 # \date       	2017-09-06
-# \update      2017-09-11
+# \update      2018-02-18
 # \version    	$Revision$
 # \license    	$XPC_SUITE_GPL_LICENSE$
 #
 # 		This module provides an Automake makefile for the libseq_qt5 C/C++
 # 		library.
+#
+# Macros:
+#
+#     The AX_HAVE_QT macro exports QT_CXXFLAGS, QT_LIBS, QT_MOC, QT_UIC,
+#     QT_LRELEASE, QT_LUPDATE, QT_DIR:
+#
+#     QT_DIR=/usr/lib/x86_64-linux-gnu
+#     QT_LIBS=-lQt5Designer -lQt5Help -lQt5OpenGL -lQt5PrintSupport
+#			 -lQt5QuickTest -lQt5UiTools -lQt5Widgets -lQt5Gui -lQt5Concurrent
+#	       -lQt5DBus -lQt5Xml -lQt5Sql -lQt5Qml -lQt5Network -lQt5Test
+#         -lQt5Core -lGL -lpthread
+#     QT_UIC=/usr/bin/uic
+#     QT_MOC=/usr/bin/moc
+#     QT_LRELEASE=/usr/bin/lrelease
+#     QT_LUPDATE=/usr/bin/lupdate
+#
+# Switches (options):
+#
+#     --with-Qt-dir[=DIR] ($QTDIR, with /include, /bin, and /lib)
+#     --with-Qt-include-dir[=DIR] (Qt header files)
+#     --with-Qt-bin-dir[=DIR] (Qt utilities such as moc and uic)
+#     --with-Qt-lib-dir[=DIR] (Qt libraries)
+#     --with-Qt-lib[=LIB] (use -lLIB to link with Qt)
+#
+# Discussion:
+#
+#  	Note that the ordering of is somewhat important.  We need the UIC files
+#  	built before we can build the MOC files.
+#
+#  	BUILT_SOURCES targets are built (but not compiled) before other targets
+#  	are processed.  It is meant for targets that need to be built early in
+#  	the build process.  Automatic dependency tracking works only after
+#  	compilation first occurs; BUILT_SOURCES handles dependencies that must be
+#  	available before compilation.
 #
 #------------------------------------------------------------------------------
 
@@ -19,7 +53,7 @@
 # Packing/cleaning targets
 #-----------------------------------------------------------------------------
 
-AUTOMAKE_OPTIONS = foreign dist-zip dist-bzip2 # subdir-objects
+AUTOMAKE_OPTIONS = foreign dist-zip dist-bzip2 subdir-objects
 MAINTAINERCLEANFILES = Makefile.in Makefile $(AUX_DIST)
 
 #******************************************************************************
@@ -30,7 +64,7 @@ MAINTAINERCLEANFILES = Makefile.in Makefile $(AUX_DIST)
 #
 #------------------------------------------------------------------------------
 
-CLEANFILES = *.gc* *.moc.cpp ../forms/*.ui.h
+CLEANFILES = *.gc* src/*.moc.cpp ../forms/*.ui.h
 MOSTLYCLEANFILES = *~
 
 #******************************************************************************
@@ -101,7 +135,9 @@ builddir = @abs_top_builddir@
 #-----------------------------------------------------------------------------
 
 formsdir = $(top_srcdir)/seq_qt5/forms
-hppdir = ../include
+hppdir = $(top_srcdir)/seq_qt5/include
+
+# qtdestdir= $(top_srcdir)/seq_qt5/qt
 
 #*****************************************************************************
 # libtool
@@ -156,14 +192,29 @@ AM_CXXFLAGS = \
 SUFFIXES = .hpp .cpp .moc.cpp .ui .ui.h
 
 # The moc.cpp files are normally deposited in the include directory!
-
-%.moc.cpp: %.hpp
-	$(QT_MOC) $< -o ../src/$(notdir $@)
+#
+# %.moc.cpp: %.h
+#   $(QT_MOC) -o "$@" "$<"
+#   $(QT_MOC) $< -o ../src/$(notdir $@)
+#
+# %.ui.h: %.ui
+#   $(QT_UIC) $< -o $@
+#
+# clean-moc-extra:              # add to clean-am target
+#   rm -vf *.moc.cpp
 
 # The ui.h files are deposited in the forms directory.
 
 %.ui.h: %.ui
-	$(QT_UIC) $< -o $@
+	@echo "uic'ing $< ..."
+	$(QT_UIC) -o $@ $<
+
+%.moc.cpp: %.hpp
+	@echo "moc'ing $< to create ${@F} in directory ${@D} ..."
+	$(QT_MOC) -o $(notdir $@) $<
+
+%.qrc.cpp: %.qrc
+	$(QT_RCC) -o $@ $<
 
 #******************************************************************************
 # The library to build, a libtool-based library
@@ -180,28 +231,36 @@ lib_LTLIBRARIES = libseq_qt5.la
 #
 # moc_sources = $(moc_qt_headers:.hpp=.moc.cpp)
 #
+#  $(hppdir)/qperfeditframe.hpp ...
+#
+#  We cannot use the $(hppdir) macro in bash substitution.  For some reason,
+#  it is not expanded and the moc files are output to a directory with the
+#  exact name "$(hppdir)".  Oy!
+#
 #----------------------------------------------------------------------------
 
 moc_qt_headers = \
- $(hppdir)/qseditoptions.hpp \
- $(hppdir)/qperfeditframe.hpp \
- $(hppdir)/qsabout.hpp \
- $(hppdir)/qseqeditframe.hpp \
- $(hppdir)/qsliveframe.hpp \
- $(hppdir)/qsmainwnd.hpp
+ ../include/qperfeditframe.hpp \
+ ../include/qsabout.hpp \
+ ../include/qseditoptions.hpp \
+ ../include/qseqeditframe.hpp \
+ ../include/qsliveframe.hpp \
+ ../include/qsmainwnd.hpp
 
 # $(hppdir)/qseqmainwnd.hpp
 # $(mocdir)/qseqmaindwnd.moc.cpp
 # $(formsdir)/qseqmainwnd.ui
 #	qseqmainwnd.cpp
 
-moc_sources = $(moc_qt_headers:.hpp=.moc.cpp)
+moc_intermed = $(moc_qt_headers:.hpp=.moc.cpp)
+moc_sources = $(moc_intermed:../include/=)
 
 uic_qt_forms = \
- $(formsdir)/qseditoptions.ui \
  $(formsdir)/qperfeditframe.ui \
  $(formsdir)/qsabout.ui \
+ $(formsdir)/qseditoptions.ui \
  $(formsdir)/qseqeditframe.ui \
+ $(formsdir)/qseqmainwnd.ui \
  $(formsdir)/qsliveframe.ui \
  $(formsdir)/qsmainwnd.ui
 
@@ -210,6 +269,7 @@ uic_sources = $(uic_qt_forms:.ui=.ui.h)
 BUILT_SOURCES = $(uic_sources) $(moc_sources)
 
 libseq_qt5_la_SOURCES = \
+ qcoloring.cpp \
  qperfeditframe.cpp \
  qperfnames.cpp \
  qperfroll.cpp \
@@ -226,7 +286,7 @@ libseq_qt5_la_SOURCES = \
  qsmaintime.cpp \
  qsmainwnd.cpp \
  qstriggereditor.cpp \
- $(moc_sources)
+ $(BUILT_SOURCES)
 
 libseq_qt5_la_LDFLAGS = -version-info $(version)
 libseq_qt5_la_LIBADD = $(QT_LIBS) $(ALSA_LIBS) $(JACK_LIBS) $(LASH_LIBS)

@@ -38,7 +38,7 @@ void qsmaintime::paintEvent(QPaintEvent *)
     mPainter->setBrush(*mBrush);
 
     long tick = m_main_perf->get_tick();
-    int metro = (tick / (c_ppqn / 4 * m_beat_width)) % m_beats_per_measure;
+    int metro = (tick / (SEQ64_DEFAULT_PPQN / 4 * m_beat_width)) % m_beats_per_measure;
     int divX = (width() - 1) / m_beats_per_measure;
 
     //flash on beats

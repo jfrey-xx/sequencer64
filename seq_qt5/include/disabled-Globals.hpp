@@ -42,13 +42,13 @@ const int qc_seqs_in_set = qc_mainwnd_rows * qc_mainwnd_cols;
 const int qc_gmute_tracks = qc_seqs_in_set * qc_seqs_in_set;
 const int qc_max_num_banks = 32;
 const int c_total_seqs = qc_seqs_in_set * qc_max_num_banks;
-const int qc_total_seqs = qc_seqs_in_set * qc_max_num_banks;
+const int c_max_sequence = qc_seqs_in_set * qc_max_num_banks;
 
 /* number of sequences */
 /* 32 screen sets */
 const int qc_max_sequence =  qc_mainwnd_rows *  qc_mainwnd_cols * qc_max_num_banks;
 
-const int c_ppqn         = 192;  /* default - dosnt change */
+const int SEQ64_DEFAULT_PPQN         = 192;  /* default - dosnt change */
 const int c_bpm          = 120;  /* default */
 const int c_maxBuses = 32;
 
@@ -330,6 +330,9 @@ const char* const qc_interaction_method_descs[] =
 
 extern interaction_method_e global_interactionmethod;
 
+/*
+ * Replaced by coloring.hpp's thumb_colors_t.
+ *
 enum thumb_colours_e
 {
     White,
@@ -341,6 +344,7 @@ enum thumb_colours_e
     Pink,
     Orange
 };
+ */
 
 // colour map, initialised in main.cpp
 extern QMap<thumb_colours_e, QColor> colourMap;

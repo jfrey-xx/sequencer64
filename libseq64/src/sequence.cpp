@@ -4289,6 +4289,56 @@ sequence::get_next_note_event
 }
 
 /**
+ *  Runs through the whole sequence looking for nots with a note value lower
+ *  than any other.
+ *
+ * \return
+ *      Returns the lowest note value found.
+ */
+
+int
+sequence::get_lowest_note_event()
+{
+    automutex locker(m_mutex);
+    int result = SEQ64_MAX_NOTE_ON_VELOCITY;
+    event_list::iterator i;
+    for (i = m_events.begin(); i != m_events.end(); ++i)
+    {
+        if (i->is_note())
+        {
+            if (i->get_note() < result)
+                result = i->get_note();
+        }
+    }
+    return result;
+}
+
+/**
+ *  Runs through the whole sequence looking for nots with a note value
+ *  higher than any other.
+ *
+ * \return
+ *      Returns the highest note value found.
+ */
+
+int
+sequence::get_highest_note_event()
+{
+    automutex locker(m_mutex);
+    int result = SEQ64_MIN_NOTE_ON_VELOCITY;
+    event_list::iterator i;
+    for (i = m_events.begin(); i != m_events.end(); ++i)
+    {
+        if (i->is_note())
+        {
+            if (i->get_note() > result)
+                result = i->get_note();
+        }
+    }
+    return result;
+}
+
+/**
  *  Get the next event in the event list.  Then set the status and control
  *  character parameters using that event.  This overload is used only in
  *  seqedit::popup_event_menu().
@@ -4308,7 +4358,6 @@ sequence::get_next_note_event
 bool
 sequence::get_next_event (midibyte & status, midibyte & cc)
 {
-    // automutex locker(m_mutex);                   // WILL IT HELP?? No.
     while (m_iterator_draw != m_events.end())       /* NOT THREADSAFE!!!    */
     {
         midibyte j;

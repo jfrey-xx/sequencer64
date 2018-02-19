@@ -27,7 +27,6 @@ dnl ---------------------------------------------------------------------------
 AC_PREREQ(2.60)
 AC_REVISION($Revision: 0.94$)dnl
 AC_INIT(Sequencer64, [0.94.6], [ahlstromcj@gmail.com])
-AC_INIT(Sequencer64, [0.94.5], [ahlstromcj@gmail.com])
 AC_CONFIG_AUX_DIR([aux-files])
 
 dnl See AC_CONFIG_SRCDIR
@@ -558,6 +557,7 @@ AC_ARG_ENABLE(qtmidi,
 
 if test "$qtmidi" != "no"; then
     build_qtmidi="yes"
+    build_rtmidi="no"
     AC_DEFINE(APP_NAME, ["qseq64"], [Names the Qt/rtmidi version of application])
     AC_DEFINE(RTMIDI_SUPPORT, 1, [Indicates that rtmidi is enabled])
     AC_DEFINE(QTMIDI_SUPPORT, 1, [Indicates that Qt5 is enabled])

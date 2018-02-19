@@ -73,6 +73,31 @@ enum thumb_colors_t
     NONE                // N/A
 };
 
+/**
+ *  Provides a base class for handling colors and hiding the implementation
+ *  from the client code.
+ */
+
+class coloring
+{
+
+protected:
+
+    coloring ()
+    {
+        // no code yet
+    }
+
+    virtual ~coloring ()
+    {
+        // no code needed
+    }
+
+    virtual void add_color (thumb_colors_t c, int r, int g, int b) = 0;
+    virtual void get_color (thumb_colors_t c, int & r, int & g, int & b) = 0;
+
+};          // class coloring
+
 }           // namespace seq64
 
 #endif      // SEQ64_COLORING_HPP

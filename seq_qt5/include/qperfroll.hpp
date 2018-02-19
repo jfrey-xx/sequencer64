@@ -8,13 +8,11 @@
 #include <QPen>
 #include <QMouseEvent>
 
-#include "Globals.hpp"
-
 #include "globals.h"
 #include "perform.hpp"
 #include "seq24Rect.hpp"
 
-const int c_perfroll_background_x = (c_ppqn * 4 * 16) / c_perf_scale_x;
+const int c_perfroll_background_x = (SEQ64_DEFAULT_PPQN * 4 * 16) / c_perf_scale_x;
 const int c_perfroll_size_box_w = 3;
 const int c_perfroll_size_box_click_w = c_perfroll_size_box_w + 1 ;
 
@@ -109,7 +107,7 @@ private:
     long    m_drop_tick_trigger_offset; //how far in ticks we clicked from
     //the start of this trigger
     long    mLastTick; //tick we we're using at last mouse event
-    bool    m_sequence_active[qc_total_seqs];
+    bool    m_sequence_active[c_max_sequence];
     bool    m_moving;
     bool    mBoxSelect;
     bool    m_growing;

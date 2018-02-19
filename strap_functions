@@ -492,6 +492,7 @@ function clean_qt5files()
 {
    echo "* Cleaning Qt 5 build artifacts..."
    find . -name "qt" -exec rm -rf '{}' \; 2> /dev/null
+   find . -name "*.moc.cpp" -exec rm -f '{}' \; 2> /dev/null
 }
 
 #******************************************************************************

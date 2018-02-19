@@ -1,3 +1,34 @@
+/*
+ *  This file is part of seq24/sequencer64.
+ *
+ *  seq24 is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  seq24 is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with seq24; if not, write to the Free Software
+ *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/**
+ * \file          qperfeditframe.cpp
+ *
+ *  This module declares/defines the class for the Qt version of perfedit.
+ *
+ * \library       sequencer64 application
+ * \author        Seq24 team; modifications by Chris Ahlstrom
+ * \date          2018-01-01
+ * \updates       2018-02-18
+ * \license       GNU GPLv2 or above
+ *
+ */
+
 #include "qperfeditframe.hpp"
 #include "forms/qperfeditframe.ui.h"
 
@@ -135,6 +166,8 @@ void qperfeditframe::updateGridSnap(int snapIndex)
     case 5:
         snap = 32;
         break;
+    default:
+        snap = 2;
     }
 
     m_snap = snap;
@@ -171,9 +204,9 @@ void qperfeditframe::set_beat_width(int a_beat_width)
 
 void qperfeditframe::set_guides()
 {
-    long measure_ticks = (c_ppqn * 4) * mbeats_per_measure / mbeat_width;
+    long measure_ticks = (SEQ64_DEFAULT_PPQN * 4) * mbeats_per_measure / mbeat_width;
     long snap_ticks =  measure_ticks / m_snap;
-    long beat_ticks = (c_ppqn * 4) / mbeat_width;
+    long beat_ticks = (SEQ64_DEFAULT_PPQN * 4) / mbeat_width;
     m_perfroll->set_guides(snap_ticks, measure_ticks, beat_ticks);
     m_perftime->set_guides(snap_ticks, measure_ticks);
 }

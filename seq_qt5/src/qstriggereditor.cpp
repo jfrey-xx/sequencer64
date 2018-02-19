@@ -79,8 +79,8 @@ void qstriggereditor::paintEvent(QPaintEvent *)
                        height());
 
     int measures_per_line = 1;
-    int ticks_per_measure =  m_seq->get_beats_per_bar() * (4 * c_ppqn) / m_seq->get_beat_width();
-    int ticks_per_beat = (4 * c_ppqn) / m_seq->get_beat_width();
+    int ticks_per_measure =  m_seq->get_beats_per_bar() * (4 * SEQ64_DEFAULT_PPQN) / m_seq->get_beat_width();
+    int ticks_per_beat = (4 * SEQ64_DEFAULT_PPQN) / m_seq->get_beat_width();
     int ticks_per_step = 6 * m_zoom;
     int ticks_per_m_line =  ticks_per_measure * measures_per_line;
     int start_tick = 0;

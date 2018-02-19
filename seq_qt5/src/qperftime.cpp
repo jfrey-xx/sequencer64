@@ -13,8 +13,8 @@ qperftime::qperftime(perform *a_perf,
     QWidget(parent),
     m_mainperf(a_perf),
     m_4bar_offset(0),
-    m_snap(c_ppqn),
-    m_measure_length(c_ppqn * 4),
+    m_snap(SEQ64_DEFAULT_PPQN),
+    m_measure_length(SEQ64_DEFAULT_PPQN * 4),
     zoom(1)
 {
     //start refresh timer to queue regular redraws
@@ -76,9 +76,9 @@ void qperftime::paintEvent(QPaintEvent *)
     long left = m_mainperf->get_left_tick();
     long right = m_mainperf->get_right_tick();
 
-    left -= (m_4bar_offset * 16 * c_ppqn);
+    left -= (m_4bar_offset * 16 * SEQ64_DEFAULT_PPQN);
     left /= c_perf_scale_x * zoom;
-    right -= (m_4bar_offset * 16 * c_ppqn);
+    right -= (m_4bar_offset * 16 * SEQ64_DEFAULT_PPQN);
     right /= c_perf_scale_x * zoom;
 
     if (left >= 0 && left <= width())
@@ -131,7 +131,7 @@ void qperftime::mousePressEvent(QMouseEvent *event)
 {
     long tick = (long) event->x();
     tick *= c_perf_scale_x * zoom;
-    tick += (m_4bar_offset * 16 * c_ppqn);
+    tick += (m_4bar_offset * 16 * SEQ64_DEFAULT_PPQN);
 
     tick = tick - (tick % m_snap);
 

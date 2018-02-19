@@ -1606,6 +1606,8 @@ public:
         midipulse & tick_s, midipulse & tick_f, int & note,
         bool & selected, int & velocity
     );
+    int get_lowest_note_event ();
+    int get_highest_note_event ();
     bool get_minmax_note_events (int & lowest, int & highest);
     bool get_next_event (midibyte & status, midibyte & cc);
     bool get_next_event_ex

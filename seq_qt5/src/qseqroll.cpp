@@ -18,7 +18,7 @@ qseqroll::qseqroll(perform *a_perf,
     m_scale(0),
     m_key(0),
     m_zoom(1),
-    m_note_length(c_ppqn * 4 / 16),
+    m_note_length(SEQ64_DEFAULT_PPQN * 4 / 16),
     m_selecting(false),
     m_adding(false),
     m_moving(false),
@@ -118,8 +118,8 @@ void qseqroll::paintEvent(QPaintEvent *)
     }
 
     int measures_per_line = 1;
-    int ticks_per_measure =  m_seq->get_beats_per_measure() * (4 * c_ppqn) / m_seq->get_beat_width();
-    int ticks_per_beat = (4 * c_ppqn) / m_seq->get_beat_width();
+    int ticks_per_measure =  m_seq->get_beats_per_measure() * (4 * SEQ64_DEFAULT_PPQN) / m_seq->get_beat_width();
+    int ticks_per_beat = (4 * SEQ64_DEFAULT_PPQN) / m_seq->get_beat_width();
     int ticks_per_step = 6 * m_zoom;
     int ticks_per_m_line =  ticks_per_measure * measures_per_line;
 

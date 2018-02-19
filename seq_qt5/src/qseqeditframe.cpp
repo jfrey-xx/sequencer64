@@ -74,7 +74,7 @@ qseqeditframe::qseqeditframe(QWidget *parent,
     ui->cmbMidiChan->setCurrentIndex(mSeq->get_midi_channel());
 
     QString snapText("1/");
-    snapText.append(QString::number(c_ppqn * 4 / mSeq->getSnap_tick()));
+    snapText.append(QString::number(SEQ64_DEFAULT_PPQN * 4 / mSeq->getSnap_tick()));
     ui->cmbGridSnap->setCurrentText(snapText);
 
     QString seqLenText(QString::number(mSeq->getNumMeasures()));
@@ -313,50 +313,50 @@ void qseqeditframe::updateGridSnap(int snapIndex)
     switch (snapIndex)
     {
     case 0:
-        snap = c_ppqn * 4;
+        snap = SEQ64_DEFAULT_PPQN * 4;
         break;
     case 1:
-        snap = c_ppqn * 2;
+        snap = SEQ64_DEFAULT_PPQN * 2;
         break;
     case 2:
-        snap = c_ppqn * 1;
+        snap = SEQ64_DEFAULT_PPQN * 1;
         break;
     case 3:
-        snap = c_ppqn / 2;
+        snap = SEQ64_DEFAULT_PPQN / 2;
         break;
     case 4:
-        snap = c_ppqn / 4;
+        snap = SEQ64_DEFAULT_PPQN / 4;
         break;
     case 5:
-        snap = c_ppqn / 8;
+        snap = SEQ64_DEFAULT_PPQN / 8;
         break;
     case 6:
-        snap = c_ppqn / 16;
+        snap = SEQ64_DEFAULT_PPQN / 16;
         break;
     case 7:
-        snap = c_ppqn / 32;
+        snap = SEQ64_DEFAULT_PPQN / 32;
         break;
     //ignore index 8 as it's a separator
     case 9:
-        snap = c_ppqn * 4  / 3;
+        snap = SEQ64_DEFAULT_PPQN * 4  / 3;
         break;
     case 10:
-        snap = c_ppqn * 2  / 3;
+        snap = SEQ64_DEFAULT_PPQN * 2  / 3;
         break;
     case 11:
-        snap = c_ppqn * 1 / 3;
+        snap = SEQ64_DEFAULT_PPQN * 1 / 3;
         break;
     case 12:
-        snap = c_ppqn / 2 / 3;
+        snap = SEQ64_DEFAULT_PPQN / 2 / 3;
         break;
     case 13:
-        snap = c_ppqn / 4 / 3;
+        snap = SEQ64_DEFAULT_PPQN / 4 / 3;
         break;
     case 14:
-        snap = c_ppqn / 8 / 3;
+        snap = SEQ64_DEFAULT_PPQN / 8 / 3;
         break;
     case 15:
-        snap = c_ppqn / 16 / 3;
+        snap = SEQ64_DEFAULT_PPQN / 16 / 3;
         break;
     }
 
@@ -398,50 +398,50 @@ void qseqeditframe::updateNoteLength(int newIndex)
     switch (newIndex)
     {
     case 0:
-        length = c_ppqn * 4;
+        length = SEQ64_DEFAULT_PPQN * 4;
         break;
     case 1:
-        length = c_ppqn * 2;
+        length = SEQ64_DEFAULT_PPQN * 2;
         break;
     case 2:
-        length = c_ppqn * 1;
+        length = SEQ64_DEFAULT_PPQN * 1;
         break;
     case 3:
-        length = c_ppqn / 2;
+        length = SEQ64_DEFAULT_PPQN / 2;
         break;
     case 4:
-        length = c_ppqn / 4;
+        length = SEQ64_DEFAULT_PPQN / 4;
         break;
     case 5:
-        length = c_ppqn / 8;
+        length = SEQ64_DEFAULT_PPQN / 8;
         break;
     case 6:
-        length = c_ppqn / 16;
+        length = SEQ64_DEFAULT_PPQN / 16;
         break;
     case 7:
-        length = c_ppqn / 32;
+        length = SEQ64_DEFAULT_PPQN / 32;
         break;
     //ignore index 8 as it's a separator
     case 9:
-        length = c_ppqn * 4  / 3;
+        length = SEQ64_DEFAULT_PPQN * 4  / 3;
         break;
     case 10:
-        length = c_ppqn * 2  / 3;
+        length = SEQ64_DEFAULT_PPQN * 2  / 3;
         break;
     case 11:
-        length = c_ppqn * 1 / 3;
+        length = SEQ64_DEFAULT_PPQN * 1 / 3;
         break;
     case 12:
-        length = c_ppqn / 2 / 3;
+        length = SEQ64_DEFAULT_PPQN / 2 / 3;
         break;
     case 13:
-        length = c_ppqn / 4 / 3;
+        length = SEQ64_DEFAULT_PPQN / 4 / 3;
         break;
     case 14:
-        length = c_ppqn / 8 / 3;
+        length = SEQ64_DEFAULT_PPQN / 8 / 3;
         break;
     case 15:
-        length = c_ppqn / 16 / 3;
+        length = SEQ64_DEFAULT_PPQN / 16 / 3;
         break;
     }
 

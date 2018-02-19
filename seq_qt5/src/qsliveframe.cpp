@@ -75,7 +75,7 @@ void qsliveframe::drawSequence(int a_seq)
 
     //timing info for timed draw elements
     long tick = mPerf->get_tick();
-    int metro = (tick / c_ppqn) % 2;
+    int metro = (tick / SEQ64_DEFAULT_PPQN) % 2;
 
     //grab frame dimensions for scaled drawing
     thumbW = (ui->frame->width() - 1 - c_mainwid_spacing * 8)

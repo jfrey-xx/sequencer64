@@ -20,7 +20,7 @@ qperfnames::qperfnames(perform *a_perf,
     setSizePolicy(QSizePolicy::Fixed,
                   QSizePolicy::MinimumExpanding);
 
-    for (int i = 0; i < qc_total_seqs; ++i)
+    for (int i = 0; i < c_max_sequence; ++i)
         m_sequence_active[i] = false;
 }
 
@@ -51,7 +51,7 @@ void qperfnames::paintEvent(QPaintEvent *)
     {
         int seqId = y;
 
-        if (seqId < qc_total_seqs)
+        if (seqId < c_max_sequence)
         {
             int i = seqId;
             //if first seq in bank
@@ -83,7 +83,7 @@ void qperfnames::paintEvent(QPaintEvent *)
                 mPen->setColor(Qt::black);
                 mPainter->setPen(*mPen);
                 mPainter->save();
-                QString bankName(mPerf->get_bank_name(bankId)->c_str());
+                QString bankName(mPerf->get_bank_name(bankId).c_str());
                 mPainter->translate(12,
                                     (c_names_y * i) +
                                     (c_names_y * c_seqs_in_set * 0.5)
@@ -104,15 +104,23 @@ void qperfnames::paintEvent(QPaintEvent *)
             mPen->setColor(Qt::black);
             if (mPerf->is_active(seqId))
             {
-                //get seq's assigned colour and beautify
+                // Get seq's assigned colour and beautify
+
+                /*
+                 * TEMPORARILY COMMENTED OUT UNTIL RECONCILED:
+                 *
+
                 QColor colourSpec =
-                QColor(colourMap.value(mPerf->get_sequence_color(seqId)));
+                    QColor(colourMap.value(mPerf->get_sequence_color(seqId)));
+
                 QColor backColour = QColor(colourSpec);
                 if (backColour.value() != 255) //dont do this if we're white
                     backColour.setHsv(colourSpec.hue(),
                                       colourSpec.saturation() * 0.65,
                                       colourSpec.value() * 1.3);
                 mBrush->setColor(backColour);
+                 *
+                 */
             }
             else
                 mBrush->setColor(Qt::lightGray);
@@ -134,7 +142,7 @@ void qperfnames::paintEvent(QPaintEvent *)
                 snprintf
                 (
                     name, sizeof name, "%-14.14s                        %2d",
-                    mPerf->get_sequence(seqId)->name(),
+                    mPerf->get_sequence(seqId)->name().c_str(),
                     mPerf->get_sequence(seqId)->get_midi_channel() + 1
                 );
 

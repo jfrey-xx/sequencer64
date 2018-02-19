@@ -5,7 +5,7 @@
 #include <QPainter>
 #include <QPen>
 
-#include "Globals.hpp"
+#include "globals.h"
 
 #include "perform.hpp"
 #include "sequence.hpp"
@@ -58,7 +58,7 @@ private:
     QPainter    *mPainter;
     QFont        mFont;
 
-    bool         m_sequence_active[qc_total_seqs];
+    bool         m_sequence_active[c_max_sequence];
 };
 
 }           // namespace seq64
