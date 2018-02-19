@@ -30,6 +30,7 @@ See the INSTALL file for build-from-source instructions.
 
 Recent changes:
 
+    -   Version 0.94.6:
     -   Version 0.94.5:
         -   Added the ability to scale the main window from 1.0 to 3.0 times
             its normal size.  Has issues, but makes buttons bigger and the

@@ -538,7 +538,7 @@ DEPENDENCIES:
          -  qttools5-dev *
          -  qtchooser
          -  qtdesigner; optional if you want to tweak the GUIs, not huge,
-            provided by the qtttools5-dev-tools package.
+            provided by the qtttools5-dev-tools package in Debian.
 
          * If these are absent, "./bootstrap -ed -qt" never finishes.
 
