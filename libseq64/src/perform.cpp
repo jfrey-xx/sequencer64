@@ -4711,6 +4711,8 @@ perform::set_quantized_recording (bool record_active, int seq, bool toggle)
 void
 perform::set_thru (bool record_active, bool thru_active, sequence * s)
 {
+
+  printf("perform:set_thru,  Seq %d '%s', record_active  %d, thru_active %d \n", s->number(), s->name().c_str(), record_active, thru_active);
     if (not_nullptr(s))
     {
         if (! record_active)
@@ -4740,6 +4742,10 @@ void
 perform::set_thru (bool thru_active, int seq, bool toggle)
 {
     sequence * s = get_sequence(seq);
+
+
+  printf("perform:set_thru2,  Seq %d '%s', thru_active  %d,  toggle %d \n", s->number(), s->name().c_str(), thru_active, toggle);
+
     if (not_nullptr(s))
         s->set_input_thru(thru_active, toggle);
 }
