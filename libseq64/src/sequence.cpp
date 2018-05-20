@@ -155,7 +155,7 @@ sequence::sequence (int ppqn)
     m_clocks_per_metronome      (24),
     m_32nds_per_quarter         (8),
     m_us_per_quarter_note       (tempo_us_from_bpm(SEQ64_DEFAULT_BPM)),
-    m_rec_vol                   (0),
+    m_rec_vol                   (-1),           /* HOTFIX: free velocity until GUI edit */
     m_note_on_velocity          (SEQ64_DEFAULT_NOTE_ON_VELOCITY),
     m_note_off_velocity         (SEQ64_DEFAULT_NOTE_OFF_VELOCITY),
     m_musical_key               (SEQ64_KEY_OF_C),
@@ -3186,6 +3186,12 @@ sequence::stream_event (event & ev)
 {
     automutex locker(m_mutex);
     bool result = channels_match(ev);           /* set if channel matches   */
+
+    midibyte note = ev.get_note();
+    midibyte velocity = ev.get_note_velocity();
+    bool ison = ev.is_note_on();
+    printf("Seq %d '%s' stream_event: note off for %d at velocity %d is on %d, now array at %d \n", number(), name().c_str(), note, velocity, ison, m_playing_notes[note]);
+
     if (result)
     {
 #ifdef SEQ64_STAZED_EXPAND_RECORD
@@ -3211,6 +3217,8 @@ sequence::stream_event (event & ev)
         {
             if (m_parent->is_pattern_playing()) /* m_parent->is_running()   */
             {
+
+	      printf("parent running, volume %d and preserve %d\n", m_rec_vol, SEQ64_PRESERVE_VELOCITY);
                 if (ev.is_note_on() && m_rec_vol > SEQ64_PRESERVE_VELOCITY)
                     ev.set_note_velocity(m_rec_vol);    /* modify incoming  */
 
@@ -3231,11 +3239,16 @@ sequence::stream_event (event & ev)
                 {
                     bool keepvelocity = m_rec_vol == SEQ64_PRESERVE_VELOCITY;
                     int velocity = int(ev.get_note_velocity());
-                    if (velocity == 0)
+	             printf("NO parent running, note on,  keepvelocity %d and new velocity %d\n", keepvelocity, velocity);
+		     if (velocity == 0) {
                         velocity = SEQ64_DEFAULT_NOTE_ON_VELOCITY;
+	                 printf("correct velocity: %d\n", velocity);
+		     }
 
-                    if (! keepvelocity)
+		     if (! keepvelocity) {
                         velocity = m_rec_vol;
+	                 printf("no keep velocity, velocity: %d\n", velocity);
+		     }
 
                     m_events_undo.push(m_events);       /* push_undo()      */
                     add_note                            /* more locking     */
@@ -4750,8 +4763,11 @@ void
 sequence::set_recording (bool r)
 {
     automutex locker(m_mutex);
-    m_notes_on = 0;             // should this require (r != m_recording)?
-    m_recording = r;
+    if (r != m_recording) {
+        printf("Seq %d '%s': setting recording to %d\n", number(), name().c_str(), r);
+        //m_notes_on = 0;             // should this require (r != m_recording)?
+        m_recording = r;
+    }
 }
 
 /**
@@ -4768,8 +4784,12 @@ void
 sequence::set_quantized_recording (bool qr)
 {
     automutex locker(m_mutex);
-    m_notes_on = 0;             // should this require (qr != m_quantized_rec)?
-    m_quantized_rec = qr;
+    if (qr != m_quantized_rec) {
+
+        printf("Seq %d '%s': setting quantized recording to %d\n", number(), name().c_str(), qr);
+        //m_notes_on = 0;             // should this require (qr != m_quantized_rec)?
+        m_quantized_rec = qr;
+    }
 }
 
 /**
@@ -5017,16 +5037,26 @@ sequence::put_event_on_bus (event & ev)
 {
     automutex locker(m_mutex);
     midibyte note = ev.get_note();
+    midibyte velocity = ev.get_note_velocity();
     bool skip = false;
     if (ev.is_note_on())
+      {
         m_playing_notes[note]++;
+        printf("Seq %d '%s' put_event_on_bus: note on: play %d at velocity %d, now array at %d \n", number(), name().c_str(), note, velocity, m_playing_notes[note]);
+      }
 
     if (ev.is_note_off())
     {
         if (m_playing_notes[note] <= 0)
+	  {
             skip = true;
+            printf("Seq %d '%s' put_event_on_bus: note off for %d at velocity %d, but skip, now array at %d \n", number(), name().c_str(), note, velocity, m_playing_notes[note]);
+	  }
         else
+	  {
             m_playing_notes[note]--;
+            printf("Seq %d '%s' put_event_on_bus: note off for %d at velocity %d, now array at %d \n", number(), name().c_str(), note, velocity, m_playing_notes[note]);
+	  }
     }
     if (! skip)
     {
