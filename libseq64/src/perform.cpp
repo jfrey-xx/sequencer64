@@ -4408,6 +4408,7 @@ perform::handle_midi_control_ex (int ctl, midi_control::action a, int v)
     /*
      * TMI: printf("ctl %d, action %d, value %d\n", ctl, int(a), v);
      */
+    printf("ctl %d, action %d, value %d\n", ctl, int(a), v);
 
     switch (ctl)
     {
@@ -4479,13 +4480,17 @@ perform::handle_midi_control_ex (int ctl, midi_control::action a, int v)
         }
         else if (a == midi_control::action_on)
         {
+	  printf("pre midi ext set thru on\n");
             set_thru(true, v);
             result = true;
+	  printf("post midi ext set thru on\n");
         }
         else if (a == midi_control::action_off)
         {
+	  printf("pre midi ext set thru off\n");
             set_thru(false, v);
             result = true;
+	  printf("post midi ext set thru off\n");
         }
         break;
 
@@ -4712,9 +4717,10 @@ void
 perform::set_thru (bool record_active, bool thru_active, sequence * s)
 {
 
-  printf("perform:set_thru,  Seq %d '%s', record_active  %d, thru_active %d \n", s->number(), s->name().c_str(), record_active, thru_active);
+  printf("perform:set_thru arrived\n");
     if (not_nullptr(s))
     {
+  printf("perform:set_thru,  Seq %d '%s', record_active  %d, thru_active %d \n", s->number(), s->name().c_str(), record_active, thru_active);
         if (! record_active)
             set_sequence_input(thru_active, s);
 
@@ -4741,13 +4747,15 @@ perform::set_thru (bool record_active, bool thru_active, sequence * s)
 void
 perform::set_thru (bool thru_active, int seq, bool toggle)
 {
+  printf("perform:set_thru2,  thru_active  %d,  toggle %d \n", thru_active, toggle);
     sequence * s = get_sequence(seq);
 
 
-  printf("perform:set_thru2,  Seq %d '%s', thru_active  %d,  toggle %d \n", s->number(), s->name().c_str(), thru_active, toggle);
 
-    if (not_nullptr(s))
+    if (not_nullptr(s)) {
+        printf("perform:set_thru2,  got pointer  Seq %d '%s'  \n", s->number(), s->name().c_str());
         s->set_input_thru(thru_active, toggle);
+    }
 }
 
 /**
@@ -4772,13 +4780,18 @@ perform::set_thru (bool thru_active, int seq, bool toggle)
 bool
 perform::midi_control_event (const event & ev)
 {
+  printf("perform midicontrol event\n");
     bool result = false;
     int offset = m_screenset_offset;
     for (int ctl = 0; ctl < g_midi_control_limit; ++ctl, ++offset)  /* 84 */
     {
+      printf("perform midicontrol event loop, ctl: %d, offset: %d\n", ctl, offset);
         result = handle_midi_control_event(ev, ctl, offset);
-        if (result)
+
+      printf("perform midicontrol event loop2, result: %d\n", result);
+        if (result) {
             break;      /* differs from legacy behavior, which keeps going */
+	}
     }
     return result;
 }
@@ -4810,8 +4823,13 @@ perform::handle_midi_control_event (const event & ev, int ctl, int offset)
     midibyte status = ev.get_status();
     midibyte d0 = 0, d1 = 0;                    /* do we need to zero them? */
     ev.get_data(d0, d1);
+
+
+    printf("perform handle midicontrol event, is_a_sequence %d, is_ext %d, status %d, d0 %d, d1 %d\n", is_a_sequence, is_ext, status, d0, d1);
+
     if (midi_control_toggle(ctl).match(status, d0))
     {
+      printf("toggle\n");
         if (midi_control_toggle(ctl).in_range(d1))
         {
             if (is_a_sequence)
@@ -4830,6 +4848,8 @@ perform::handle_midi_control_event (const event & ev, int ctl, int offset)
     }
     if (midi_control_on(ctl).match(status, d0))
     {
+
+      printf("on\n");
         if (midi_control_on(ctl).in_range(d1))
         {
             if (is_a_sequence)
@@ -4867,25 +4887,34 @@ perform::handle_midi_control_event (const event & ev, int ctl, int offset)
     }
     if (midi_control_off(ctl).match(status, d0))
     {
+      printf("off\n");
         if (midi_control_off(ctl).in_range(d1))  /* Issue #35 */
         {
+                printf("midi_control_off\n");
             if (is_a_sequence)
             {
+            printf("is_a_sequence\n");
                 sequence_playing_off(offset);
                 result = true;
             }
             else if (is_ext)
             {
+                printf("is_ext\n");
                 result = handle_midi_control_ex
                 (
                     ctl, midi_control::action_off, d1
                 );
+                printf("is_ext post\n");
             }
-            else
+            else {
+       
+                printf("else\n");
                 result = handle_midi_control(ctl, false);
+	    }
         }
         else if (midi_control_off(ctl).inverse_active())
         {
+                printf("inverse active\n");
             if (is_a_sequence)
             {
                 sequence_playing_on(offset);
@@ -4893,10 +4922,12 @@ perform::handle_midi_control_event (const event & ev, int ctl, int offset)
             }
             else if (is_ext)
             {
+                printf("is_ext\n");
                 result = handle_midi_control_ex
                 (
                     ctl, midi_control::action_on, d1
                 );
+                printf("is_ext post\n");
             }
             else
                 result = handle_midi_control(ctl, true);
@@ -5078,11 +5109,15 @@ perform::input_func ()
 
                         if (m_master_bus->is_dumping())
                         {
-                            if (! midi_control_record(ev))
+			  // HOTFIX, will check for all events, too trick
+			  // if (! midi_control_record(ev))
+                            if (! midi_control_event(ev))
                             {
                                 ev.set_timestamp(get_tick());
-                                if (rc().show_midi())
+                                if (rc().show_midi()) {
+				  printf("perform input func\n");
                                     ev.print();
+				}
 
                                 if (m_filter_by_channel)
                                     m_master_bus->dump_midi_input(ev);
@@ -5092,10 +5127,13 @@ perform::input_func ()
                         }
                         else
                         {
-                            if (rc().show_midi())
+			  if (rc().show_midi()) {
+			    printf("perform input func2\n");
                                 ev.print();
+			  }
 
                             (void) midi_control_event(ev);
+			    printf("perform input \n");
                         }
 
 #ifdef USE_STAZED_PARSE_SYSEX               // more code to incorporate!!!
@@ -5123,8 +5161,10 @@ perform::input_func ()
                         if (global_use_sysex)
                             parse_sysex(ev);
 #endif
-                        if (rc().show_midi())
+                        if (rc().show_midi()) {
+			  printf("perform input func3\n");
                             ev.print();
+			}
 
                         if (rc().pass_sysex())
                             m_master_bus->sysex(&ev);

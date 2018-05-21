@@ -566,6 +566,10 @@ event::print () const
     );
     if (is_sysex() || is_meta())
     {
+
+
+        printf("event:print sysex or meta");
+
         bool use_linefeeds = get_sysex_size() > 8;
         printf("ex[%d]:   ", get_sysex_size());
         for (int i = 0; i < get_sysex_size(); ++i)
@@ -579,6 +583,7 @@ event::print () const
     }
     else
     {
+        printf("event:print no sysex nor meta");
         printf("data[2]: %02X %02X\n", m_data[0], m_data[1]);
     }
 }
