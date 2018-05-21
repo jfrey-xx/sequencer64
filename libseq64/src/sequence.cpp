@@ -4855,6 +4855,7 @@ void
 sequence::set_overwrite_rec (bool ovwr)
 {
     automutex locker(m_mutex);
+    printf("sequence:set_overwrite_rec bool %d\n", ovwr);
     m_overwrite_recording = ovwr;
 }
 

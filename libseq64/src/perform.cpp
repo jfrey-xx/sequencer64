@@ -4564,6 +4564,25 @@ perform::handle_midi_control_ex (int ctl, midi_control::action a, int v)
         }
         break;
 
+    // HOTFIX: using on action of last extended control for reset
+    case c_midi_control_19:
+        if (a == midi_control::action_toggle)
+        {
+            set_overwrite_recording(false, v, true);        /* toggles */
+            result = true;
+        }
+        else if (a == midi_control::action_on)
+        {
+            set_overwrite_recording(true, v);
+            result = true;
+        }
+        else if (a == midi_control::action_off)
+        {
+            set_overwrite_recording(false, v);
+            result = true;
+        }
+        break;
+
     default:
 
         break;
@@ -4673,7 +4692,7 @@ perform::set_quantized_recording (bool record_active, sequence * s)
 }
 
 /**
- *  Sets qauntized recording.  This isn't quite consistent with setting
+ *  Sets quantized recording.  This isn't quite consistent with setting
  *  regular recording, which uses sequence::set_input_recording().
  *
  * \param record_active
@@ -4699,6 +4718,37 @@ perform::set_quantized_recording (bool record_active, int seq, bool toggle)
             s->set_quantized_recording(record_active);
     }
 }
+
+
+/**
+ *  Set recording for overwrite.
+ *  TODO: might probably as well create (bool rec_active, bool thru_active, sequence * s)
+ *
+ * \param overwrite_active
+ *      Provides the current status of the overwrite mode.
+ *
+ * \param seq
+ *      The sequence number; the resulting pointer is checked.
+ *
+ * \param toggle
+ *      If true, ignore the first flag and let the sequence toggle its
+ *      setting.  Passed along to sequence::set_overwrite_rec().
+ */
+
+void
+perform::set_overwrite_recording (bool overwrite_active, int seq, bool toggle)
+{
+  printf("perform:set_overwrite_recording overwrite_active %d, seq %d, toggle %d\n", overwrite_active, seq, toggle);
+    sequence * s = get_sequence(seq);
+    if (not_nullptr(s))
+    {
+        if (toggle)
+            s->set_overwrite_rec(! s->get_overwrite_rec());
+        else
+            s->set_overwrite_rec(overwrite_active);
+    }
+}
+
 
 /**
  *  Encapsulates code used by seqedit::thru_change_callback().
@@ -4850,7 +4900,7 @@ perform::handle_midi_control_event (const event & ev, int ctl, int offset)
     if (midi_control_on(ctl).match(status, d0))
     {
 
-      //printf("on\n");
+      printf("on\n");
         if (midi_control_on(ctl).in_range(d1))
         {
             if (is_a_sequence)
@@ -4860,6 +4910,7 @@ perform::handle_midi_control_event (const event & ev, int ctl, int offset)
             }
             else if (is_ext)
             {
+           printf("ext\n");
                 result = handle_midi_control_ex
                 (
                     ctl, midi_control::action_on, d1
