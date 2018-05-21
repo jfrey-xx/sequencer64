@@ -3209,6 +3209,9 @@ sequence::stream_event (event & ev)
          *        How?
          */
 
+
+      printf("get_last_tick %d\n", get_last_tick());
+      printf("overwrite: %d, loop reset: %d\n", get_overwrite_rec(), get_loop_reset());
         if (get_overwrite_rec() && get_loop_reset())
         {
             set_loop_reset(false);
@@ -4869,6 +4872,7 @@ void
 sequence::set_loop_reset (bool reset)
 {
     automutex locker(m_mutex);
+    printf("sequence, set_loop reset %d\n", reset);
     m_loop_reset = reset;
 }
 
