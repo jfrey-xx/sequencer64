@@ -4667,8 +4667,9 @@ perform::set_recording (bool record_active, int seq, bool toggle)
 void
 perform::set_quantized_recording (bool record_active, sequence * s)
 {
-    if (not_nullptr(s))
-        s->set_recording(record_active);
+  if (not_nullptr(s)) {
+        s->set_quantized_recording(record_active);
+  }
 }
 
 /**
@@ -4780,15 +4781,15 @@ perform::set_thru (bool thru_active, int seq, bool toggle)
 bool
 perform::midi_control_event (const event & ev)
 {
-  printf("perform midicontrol event\n");
+  //  printf("perform midicontrol event\n");
     bool result = false;
     int offset = m_screenset_offset;
     for (int ctl = 0; ctl < g_midi_control_limit; ++ctl, ++offset)  /* 84 */
     {
-      printf("perform midicontrol event loop, ctl: %d, offset: %d\n", ctl, offset);
+      //printf("perform midicontrol event loop, ctl: %d, offset: %d\n", ctl, offset);
         result = handle_midi_control_event(ev, ctl, offset);
 
-      printf("perform midicontrol event loop2, result: %d\n", result);
+	//printf("perform midicontrol event loop2, result: %d\n", result);
         if (result) {
             break;      /* differs from legacy behavior, which keeps going */
 	}
@@ -4825,11 +4826,11 @@ perform::handle_midi_control_event (const event & ev, int ctl, int offset)
     ev.get_data(d0, d1);
 
 
-    printf("perform handle midicontrol event, is_a_sequence %d, is_ext %d, status %d, d0 %d, d1 %d\n", is_a_sequence, is_ext, status, d0, d1);
+    //printf("perform handle midicontrol event, is_a_sequence %d, is_ext %d, status %d, d0 %d, d1 %d\n", is_a_sequence, is_ext, status, d0, d1);
 
     if (midi_control_toggle(ctl).match(status, d0))
     {
-      printf("toggle\n");
+      //printf("toggle\n");
         if (midi_control_toggle(ctl).in_range(d1))
         {
             if (is_a_sequence)
@@ -4849,7 +4850,7 @@ perform::handle_midi_control_event (const event & ev, int ctl, int offset)
     if (midi_control_on(ctl).match(status, d0))
     {
 
-      printf("on\n");
+      //printf("on\n");
         if (midi_control_on(ctl).in_range(d1))
         {
             if (is_a_sequence)
@@ -4887,34 +4888,34 @@ perform::handle_midi_control_event (const event & ev, int ctl, int offset)
     }
     if (midi_control_off(ctl).match(status, d0))
     {
-      printf("off\n");
+      //printf("off\n");
         if (midi_control_off(ctl).in_range(d1))  /* Issue #35 */
         {
-                printf("midi_control_off\n");
+	  //printf("midi_control_off\n");
             if (is_a_sequence)
             {
-            printf("is_a_sequence\n");
+	      //printf("is_a_sequence\n");
                 sequence_playing_off(offset);
                 result = true;
             }
             else if (is_ext)
             {
-                printf("is_ext\n");
+	      //printf("is_ext\n");
                 result = handle_midi_control_ex
                 (
                     ctl, midi_control::action_off, d1
                 );
-                printf("is_ext post\n");
+                //printf("is_ext post\n");
             }
             else {
        
-                printf("else\n");
+	      //printf("else\n");
                 result = handle_midi_control(ctl, false);
 	    }
         }
         else if (midi_control_off(ctl).inverse_active())
         {
-                printf("inverse active\n");
+	  //printf("inverse active\n");
             if (is_a_sequence)
             {
                 sequence_playing_on(offset);
@@ -4922,12 +4923,12 @@ perform::handle_midi_control_event (const event & ev, int ctl, int offset)
             }
             else if (is_ext)
             {
-                printf("is_ext\n");
+	      //printf("is_ext\n");
                 result = handle_midi_control_ex
                 (
                     ctl, midi_control::action_on, d1
                 );
-                printf("is_ext post\n");
+                //printf("is_ext post\n");
             }
             else
                 result = handle_midi_control(ctl, true);

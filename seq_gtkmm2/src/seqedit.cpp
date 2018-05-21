@@ -2775,6 +2775,7 @@ seqedit::q_rec_change_callback ()
 {
     // m_seq.set_quantized_recording(m_toggle_q_rec->get_active());
 
+    printf("seqedit: q_rec_change_callback()\n");
     perf().set_quantized_recording(m_toggle_q_rec->get_active(), &m_seq);
     if (m_toggle_q_rec->get_active() && ! m_toggle_record->get_active())
         m_toggle_record->activate();

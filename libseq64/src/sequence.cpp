@@ -2933,7 +2933,12 @@ sequence::add_note
             add_event(e);
 
             e.set_status(EVENT_NOTE_OFF);
-            e.set_data(note, midibyte(m_note_off_velocity));    /* HARD-WIRED */
+
+            printf("sequenc:add_note, mote: %d, m_note_off_velocity: %d, midibyte note off: %d, hardwire: %d\n", note,  m_note_off_velocity, midibyte(m_note_off_velocity), hardwire);
+
+	    // HOTFIX: will be consitant with how m_note_on_velocity is handled above, enable 0 velocity (a standard ?) for note off when not playing
+            //e.set_data(note, midibyte(m_note_off_velocity));    /* HARD-WIRED */
+            e.set_data(note, hardwire ? midibyte(m_note_off_velocity) : 0);
             e.set_timestamp(tick + len);
             result = add_event(e);
         }
@@ -3272,8 +3277,10 @@ sequence::stream_event (event & ev)
         link_new();                                     /* more locking     */
         if (m_quantized_rec && m_parent->is_pattern_playing())
         {
+	  printf("squence stream event, quantisize and pattern_playing\n");
             if (ev.is_note_off())
             {
+	      printf("note off\n");
                 midipulse timestamp = ev.get_timestamp();
                 midibyte note = ev.get_note();
                 select_note_events(timestamp, note, timestamp, note, e_select);
@@ -3433,6 +3440,7 @@ sequence::play_note_off (int note)
     automutex locker(m_mutex);
     event e;
     e.set_status(EVENT_NOTE_OFF);
+    printf("sequenc:play_note_off, mote: %d, m_note_off_velocity: %d, midibyte note off: %d\n", note,  m_note_off_velocity, midibyte(m_note_off_velocity));
     e.set_data(note, midibyte(m_note_off_velocity));
     m_master_bus->play(m_bus, &e, m_midi_channel);
     m_master_bus->flush();
@@ -5058,7 +5066,7 @@ sequence::put_event_on_bus (event & ev)
         if (m_playing_notes[note] <= 0)
 	  {
             skip = true;
-            printf("Seq %d '%s' put_event_on_bus: note off for %d at velocity %d, but skip, now array at %d \n", number(), name().c_str(), note, velocity, m_playing_notes[note]);
+            printf("Seq %d '%s' put_event_on_bus: SKIP note off for %d at velocity %d, but skip, now array at %d \n", number(), name().c_str(), note, velocity, m_playing_notes[note]);
 	  }
         else
 	  {
@@ -5360,8 +5368,10 @@ sequence::quantize_events
 )
 {
     automutex locker(m_mutex);
+    printf("sequence:quantize_events\n");
     if (mark_selected())
     {
+    printf("mark_selected\n");
         /*
          * \note
          *      Do NOT call push_undo() here; quantize_events() is used in
@@ -5375,6 +5385,8 @@ sequence::quantize_events
             event & er = DREF(i);
             midibyte d0, d1;
             er.get_data(d0, d1);
+
+            printf("event %d with d0 %d and d1 %d \n", i, d0, d1);
             bool match = er.get_status() == status;
             bool canselect;
             if (status == EVENT_CONTROL_CHANGE)
@@ -5387,6 +5399,7 @@ sequence::quantize_events
 
             if (canselect)
             {
+	      printf("select\n");
                 event e = er;                   /* copy the event             */
                 er.select();                    /* selected original event    */
                 e.unmark();                     /* unmark copy of the event   */
@@ -5402,6 +5415,8 @@ sequence::quantize_events
                 if ((t_delta + t) >= m_length)      /* wrap-around Note On    */
                     t_delta = -e.get_timestamp();
 
+
+	        printf("t: %f, snap_tick: %f, t_remainder: %f, timestamp: %f, t_delta: %f\n", t, snap_tick, t_remainder,e.get_timestamp(), t_delta);
                 e.set_timestamp(e.get_timestamp() + t_delta);
                 quantized_events.add(e);
 
